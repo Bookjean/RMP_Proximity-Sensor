@@ -20,7 +20,7 @@ find_package(std_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(visualization_msgs REQUIRED)
 
-set(CASADI_ROOT "/home/song/rb10_rl_sim/third_party/casadi/install")
+set(CASADI_ROOT "/home/song/ros2_ws/third_party/casadi/install")
 set(CASADI_INCLUDE_DIR "${CASADI_ROOT}/include")
 set(CASADI_LIBRARY "${CASADI_ROOT}/lib/libcasadi.so")
 set(PINOCCHIO_ROOT "/opt/ros/humble")
@@ -170,6 +170,22 @@ ament_target_dependencies(
   visualization_msgs
 )
 
+add_executable(proximity_obstacle_bridge src/proximity_obstacle_bridge.cpp)
+target_include_directories(proximity_obstacle_bridge PRIVATE include)
+set_target_properties(
+  proximity_obstacle_bridge PROPERTIES
+  BUILD_RPATH "${CASADI_ROOT}/lib"
+  INSTALL_RPATH "${CASADI_ROOT}/lib"
+)
+target_link_libraries(proximity_obstacle_bridge Eigen3::Eigen)
+ament_target_dependencies(
+  proximity_obstacle_bridge
+  rclcpp
+  sensor_msgs
+  tf2_ros
+  visualization_msgs
+)
+
 install(
   TARGETS
     rb10_pinocchio_rmp
@@ -179,6 +195,7 @@ install(
     interactive_goal
     obstacle_manager
     tof_ray_visualizer
+    proximity_obstacle_bridge
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -198,6 +215,12 @@ install(
     meshes
     urdf
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(
+  PROGRAMS
+    scripts/rmp_debug.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 ament_package()

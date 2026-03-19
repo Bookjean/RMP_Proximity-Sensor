@@ -21,6 +21,13 @@ struct ControlPointSpec
   double radius;
 };
 
+struct SensorControlPointSpec
+{
+  const char * frame_name;
+  Eigen::Vector3d offset;
+  double radius;
+};
+
 struct ControlPoint
 {
   Eigen::Vector3d position;
@@ -29,14 +36,14 @@ struct ControlPoint
 
 struct KinematicsContext
 {
-  std::array<Eigen::Vector3d, 9> link_positions;
-  std::array<Eigen::Matrix3d, 9> link_rotations;
-  std::array<Eigen::Matrix<double, 3, 6>, 9> link_jacobians;
-  std::array<Eigen::Matrix<double, 3, 6>, 9> link_angular_jacobians;
-  std::array<Eigen::Vector3d, 9> link_velocities;
-  std::array<Eigen::Vector3d, 9> link_curvatures;
-  std::array<Eigen::Vector3d, 9> link_angular_velocities;
-  std::array<Eigen::Vector3d, 9> link_angular_curvatures;
+  std::array<Eigen::Vector3d, 11> link_positions;
+  std::array<Eigen::Matrix3d, 11> link_rotations;
+  std::array<Eigen::Matrix<double, 3, 6>, 11> link_jacobians;
+  std::array<Eigen::Matrix<double, 3, 6>, 11> link_angular_jacobians;
+  std::array<Eigen::Vector3d, 11> link_velocities;
+  std::array<Eigen::Vector3d, 11> link_curvatures;
+  std::array<Eigen::Vector3d, 11> link_angular_velocities;
+  std::array<Eigen::Vector3d, 11> link_angular_curvatures;
   std::array<Eigen::Vector3d, 6> joint_origins;
   std::array<Eigen::Vector3d, 6> joint_axes;
   Eigen::Vector3d tcp_position{Eigen::Vector3d::Zero()};
@@ -62,15 +69,18 @@ public:
     LINK1,
     LINK2,
     LINK3,
+    LINK3_5,
     LINK4,
     LINK5,
     LINK6,
     TCP,
+    TCP_RMP,
     LINK_COUNT
   };
 
   static constexpr std::array<const char *, LINK_COUNT> link_names{
-    "base_link", "link0", "link1", "link2", "link3", "link4", "link5", "link6", "tcp"
+    "base_link", "link0", "link1", "link2", "link3", "link3_5", "link4", "link5", "link6", "tcp",
+    "tcp_rmp"
   };
 
   static constexpr std::array<const char *, 6> joint_names{
@@ -91,6 +101,13 @@ public:
     {LINK4, LINK5, 5, 0.08},
     {LINK5, LINK6, 5, 0.06},
     {LINK6, TCP, 5, 0.05},
+  }};
+
+  inline static const std::array<SensorControlPointSpec, 4> sensor_control_points{{
+    {"tof_N", Eigen::Vector3d(-0.06, 0.0, 0.285075), 0.08},
+    {"tof_S", Eigen::Vector3d(0.06, 0.0, 0.285075),  0.08},
+    {"tof_E", Eigen::Vector3d(0.0, 0.06, 0.285075),  0.08},
+    {"tof_W", Eigen::Vector3d(0.0, -0.06, 0.285075), 0.08},
   }};
 
   static Eigen::Affine3d origin_transform(
@@ -119,6 +136,20 @@ public:
     return jacobian;
   }
 
+  static Eigen::Vector3d sensor_position_from_q(
+    const JointVector & q,
+    const Eigen::Vector3d & offset)
+  {
+    Eigen::Affine3d transform = Eigen::Affine3d::Identity();
+    transform = transform * Eigen::AngleAxisd(q[0], Eigen::Vector3d::UnitZ());
+    transform = transform * origin_transform(0.0, 0.0, 0.197);
+    transform = transform * Eigen::AngleAxisd(q[1], Eigen::Vector3d::UnitY());
+    transform = transform * origin_transform(0.0, -0.1875, 0.6127);
+    transform = transform * Eigen::AngleAxisd(q[2], Eigen::Vector3d::UnitY());
+    transform = transform * origin_transform(0.0, 0.1484, 0.0);
+    return transform * offset;
+  }
+
   static KinematicsContext forward_context(const JointVector & q)
   {
     KinematicsContext context;
@@ -129,11 +160,14 @@ public:
 
     context.link_positions[BASE_LINK] = transform.translation();
     context.link_positions[LINK0] = transform.translation();
+    context.link_rotations[BASE_LINK] = transform.linear();
+    context.link_rotations[LINK0] = transform.linear();
 
     context.joint_origins[0] = transform.translation();
     context.joint_axes[0] = transform.linear() * Eigen::Vector3d::UnitZ();
     transform = transform * Eigen::AngleAxisd(q[0], Eigen::Vector3d::UnitZ());
     context.link_positions[LINK1] = transform.translation();
+    context.link_rotations[LINK1] = transform.linear();
 
     transform = transform * origin_transform(0.0, 0.0, 0.197);
     context.joint_origins[1] = transform.translation();
@@ -142,6 +176,7 @@ public:
     context.link_jacobians[LINK2] = point_jacobian(
       context.link_positions[LINK2], context.joint_origins, context.joint_axes, 1);
     transform = transform * Eigen::AngleAxisd(q[1], Eigen::Vector3d::UnitY());
+    context.link_rotations[LINK2] = transform.linear();
 
     transform = transform * origin_transform(0.0, -0.1875, 0.6127);
     context.joint_origins[2] = transform.translation();
@@ -150,14 +185,22 @@ public:
     context.link_jacobians[LINK3] = point_jacobian(
       context.link_positions[LINK3], context.joint_origins, context.joint_axes, 2);
     transform = transform * Eigen::AngleAxisd(q[2], Eigen::Vector3d::UnitY());
+    context.link_rotations[LINK3] = transform.linear();
 
-    transform = transform * origin_transform(0.0, 0.1484, 0.57015);
+    const Eigen::Affine3d link3_5_transform = transform * origin_transform(0.0, 0.1484, 0.0);
+    context.link_positions[LINK3_5] = link3_5_transform.translation();
+    context.link_jacobians[LINK3_5] = point_jacobian(
+      context.link_positions[LINK3_5], context.joint_origins, context.joint_axes, 3);
+    context.link_rotations[LINK3_5] = link3_5_transform.linear();
+
+    transform = link3_5_transform * origin_transform(0.0, 0.0, 0.57015);
     context.joint_origins[3] = transform.translation();
     context.joint_axes[3] = transform.linear() * Eigen::Vector3d::UnitY();
     context.link_positions[LINK4] = transform.translation();
     context.link_jacobians[LINK4] = point_jacobian(
       context.link_positions[LINK4], context.joint_origins, context.joint_axes, 3);
     transform = transform * Eigen::AngleAxisd(q[3], Eigen::Vector3d::UnitY());
+    context.link_rotations[LINK4] = transform.linear();
 
     transform = transform * origin_transform(0.0, -0.11715, 0.0);
     context.joint_origins[4] = transform.translation();
@@ -166,6 +209,7 @@ public:
     context.link_jacobians[LINK5] = point_jacobian(
       context.link_positions[LINK5], context.joint_origins, context.joint_axes, 4);
     transform = transform * Eigen::AngleAxisd(q[4], Eigen::Vector3d::UnitZ());
+    context.link_rotations[LINK5] = transform.linear();
 
     transform = transform * origin_transform(0.0, 0.0, 0.11715);
     context.joint_origins[5] = transform.translation();
@@ -174,33 +218,31 @@ public:
     context.link_jacobians[LINK6] = point_jacobian(
       context.link_positions[LINK6], context.joint_origins, context.joint_axes, 5);
     transform = transform * Eigen::AngleAxisd(q[5], Eigen::Vector3d::UnitY());
+    context.link_rotations[LINK6] = transform.linear();
 
     const Eigen::Affine3d tcp_transform = transform * origin_transform(0.0, -0.1153, 0.0);
-    context.tcp_position = tcp_transform.translation();
+    const Eigen::Affine3d tcp_rmp_transform =
+      tcp_transform * origin_transform(0.0, 0.0, 0.0, 0.0, 1.5707963268, 1.5707963268);
+    context.tcp_position = tcp_rmp_transform.translation();
     context.tcp_jacobian = point_jacobian(
       context.tcp_position, context.joint_origins, context.joint_axes, 6);
-    context.link_positions[TCP] = context.tcp_position;
-    context.link_jacobians[TCP] = context.tcp_jacobian;
+    context.link_positions[TCP] = tcp_transform.translation();
+    context.link_jacobians[TCP] = point_jacobian(
+      context.link_positions[TCP], context.joint_origins, context.joint_axes, 6);
+    context.link_rotations[TCP] = tcp_transform.linear();
+    context.link_positions[TCP_RMP] = context.tcp_position;
+    context.link_jacobians[TCP_RMP] = context.tcp_jacobian;
+    context.link_rotations[TCP_RMP] = tcp_rmp_transform.linear();
 
-    context.control_points.reserve(33);
-    context.control_point_jacobians.reserve(33);
-    for (const auto & spec : control_point_specs) {
-      const auto & start = context.link_positions[static_cast<std::size_t>(spec.start_link)];
-      const auto & end = context.link_positions[static_cast<std::size_t>(spec.end_link)];
-      const auto & start_jacobian =
-        context.link_jacobians[static_cast<std::size_t>(spec.start_link)];
-      const auto & end_jacobian =
-        context.link_jacobians[static_cast<std::size_t>(spec.end_link)];
-      for (int index = 0; index < spec.interpolation_points; ++index) {
-        const double alpha =
-          static_cast<double>(index + 1) / static_cast<double>(spec.interpolation_points);
-        context.control_points.push_back(ControlPoint{
-          (1.0 - alpha) * start + alpha * end,
-          spec.radius
-        });
-        context.control_point_jacobians.push_back(
-          (1.0 - alpha) * start_jacobian + alpha * end_jacobian);
-      }
+    context.control_points.reserve(sensor_control_points.size());
+    context.control_point_jacobians.reserve(sensor_control_points.size());
+    for (const auto & sensor : sensor_control_points) {
+      const Eigen::Vector3d position = sensor_position_from_q(q, sensor.offset);
+      context.control_points.push_back(ControlPoint{position, sensor.radius});
+      context.control_point_jacobians.push_back(
+        numerical_jacobian(q, [&sensor](const JointVector & sample_q) {
+          return sensor_position_from_q(sample_q, sensor.offset);
+        }));
     }
 
     return context;

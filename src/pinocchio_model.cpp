@@ -83,6 +83,16 @@ PinocchioModel::PinocchioModel(const std::string & urdf_path)
     frame_ids_[index] = frame_id;
   }
 
+  for (std::size_t index = 0; index < RB10Model::sensor_control_points.size(); ++index) {
+    const auto frame_id = model_.getFrameId(RB10Model::sensor_control_points[index].frame_name);
+    if (frame_id == static_cast<pinocchio::FrameIndex>(model_.frames.size())) {
+      throw std::runtime_error(
+              "Pinocchio sensor frame not found in URDF: " +
+              std::string(RB10Model::sensor_control_points[index].frame_name));
+    }
+    sensor_frame_ids_[index] = frame_id;
+  }
+
   for (std::size_t index = 0; index < lower_limits_.size(); ++index) {
     lower_limits_[index] = model_.lowerPositionLimit[static_cast<Eigen::Index>(index)];
     upper_limits_[index] = model_.upperPositionLimit[static_cast<Eigen::Index>(index)];
@@ -113,44 +123,24 @@ KinematicsContext PinocchioModel::forward_context(
       model_, data, frame_id, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED).angular();
   }
 
-  context.tcp_position = context.link_positions[RB10Model::TCP];
-  context.tcp_jacobian = context.link_jacobians[RB10Model::TCP];
-  context.tcp_velocity = context.link_velocities[RB10Model::TCP];
-  context.tcp_curvature = context.link_curvatures[RB10Model::TCP];
+  context.tcp_position = context.link_positions[RB10Model::TCP_RMP];
+  context.tcp_jacobian = context.link_jacobians[RB10Model::TCP_RMP];
+  context.tcp_velocity = context.link_velocities[RB10Model::TCP_RMP];
+  context.tcp_curvature = context.link_curvatures[RB10Model::TCP_RMP];
 
-  context.control_points.reserve(33);
-  context.control_point_jacobians.reserve(33);
-  context.control_point_velocities.reserve(33);
-  context.control_point_curvatures.reserve(33);
-  for (const auto & spec : RB10Model::control_point_specs) {
-    const auto & start = context.link_positions[static_cast<std::size_t>(spec.start_link)];
-    const auto & end = context.link_positions[static_cast<std::size_t>(spec.end_link)];
-    const auto & start_jacobian =
-      context.link_jacobians[static_cast<std::size_t>(spec.start_link)];
-    const auto & end_jacobian =
-      context.link_jacobians[static_cast<std::size_t>(spec.end_link)];
-    const auto & start_velocity =
-      context.link_velocities[static_cast<std::size_t>(spec.start_link)];
-    const auto & end_velocity =
-      context.link_velocities[static_cast<std::size_t>(spec.end_link)];
-    const auto & start_curvature =
-      context.link_curvatures[static_cast<std::size_t>(spec.start_link)];
-    const auto & end_curvature =
-      context.link_curvatures[static_cast<std::size_t>(spec.end_link)];
-    for (int index = 0; index < spec.interpolation_points; ++index) {
-      const double alpha =
-        static_cast<double>(index + 1) / static_cast<double>(spec.interpolation_points);
-      context.control_points.push_back(ControlPoint{
-        (1.0 - alpha) * start + alpha * end,
-        spec.radius
-      });
-      context.control_point_jacobians.push_back(
-        (1.0 - alpha) * start_jacobian + alpha * end_jacobian);
-      context.control_point_velocities.push_back(
-        (1.0 - alpha) * start_velocity + alpha * end_velocity);
-      context.control_point_curvatures.push_back(
-        (1.0 - alpha) * start_curvature + alpha * end_curvature);
-    }
+  context.control_points.reserve(RB10Model::sensor_control_points.size());
+  context.control_point_jacobians.reserve(RB10Model::sensor_control_points.size());
+  context.control_point_velocities.reserve(RB10Model::sensor_control_points.size());
+  context.control_point_curvatures.reserve(RB10Model::sensor_control_points.size());
+  for (std::size_t index = 0; index < RB10Model::sensor_control_points.size(); ++index) {
+    const auto frame_id = sensor_frame_ids_[index];
+    context.control_points.push_back(ControlPoint{
+      data.oMf[frame_id].translation(),
+      RB10Model::sensor_control_points[index].radius
+    });
+    context.control_point_jacobians.push_back(linear_jacobian(model_, data, frame_id));
+    context.control_point_velocities.push_back(frame_linear_velocity(model_, data, frame_id));
+    context.control_point_curvatures.push_back(frame_linear_curvature(model_, data, frame_id));
   }
 
   return context;

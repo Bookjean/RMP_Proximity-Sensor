@@ -2,8 +2,8 @@
 import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
@@ -27,10 +27,22 @@ def generate_launch_description():
         description='Start RViz'
     )
 
+    use_interactive_goal_arg = DeclareLaunchArgument(
+        'use_interactive_goal',
+        default_value='true',
+        description='Start the interactive goal publisher'
+    )
+
     use_obstacles_arg = DeclareLaunchArgument(
         'use_obstacles',
         default_value='true',
         description='Enable obstacle manager'
+    )
+
+    use_proximity_bridge_arg = DeclareLaunchArgument(
+        'use_proximity_bridge',
+        default_value='false',
+        description='Use external proximity_distance topics to build obstacle markers'
     )
 
     # Robot State Publisher
@@ -59,6 +71,7 @@ def generate_launch_description():
         name='interactive_goal',
         output='screen',
         parameters=[params_path],
+        condition=IfCondition(LaunchConfiguration('use_interactive_goal')),
     )
 
     # Obstacle Manager
@@ -67,7 +80,19 @@ def generate_launch_description():
         executable='obstacle_manager',
         name='obstacle_manager',
         output='screen',
-        condition=IfCondition(LaunchConfiguration('use_obstacles')),
+        condition=IfCondition(PythonExpression([
+            '"', LaunchConfiguration('use_obstacles'), '" == "true" and "',
+            LaunchConfiguration('use_proximity_bridge'), '" != "true"',
+        ])),
+        parameters=[params_path],
+    )
+
+    proximity_obstacle_bridge = Node(
+        package='rb10_rmpflow_rviz',
+        executable='proximity_obstacle_bridge',
+        name='proximity_obstacle_bridge',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('use_proximity_bridge')),
         parameters=[params_path],
     )
 
@@ -102,11 +127,14 @@ def generate_launch_description():
 
     return LaunchDescription([
         use_rviz_arg,
+        use_interactive_goal_arg,
         use_obstacles_arg,
+        use_proximity_bridge_arg,
         robot_state_publisher,
         rmpflow_controller,
         interactive_goal,
         obstacle_manager,
+        proximity_obstacle_bridge,
         tof_ray_visualizer,
         rviz,
     ])

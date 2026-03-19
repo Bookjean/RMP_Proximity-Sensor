@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -207,6 +208,11 @@ public:
     declare_parameter("goal_x", 0.6);
     declare_parameter("goal_y", -0.4);
     declare_parameter("goal_z", 0.6);
+    declare_parameter("min_goal_z", 0.05);
+    declare_parameter("safety_stop_on_min_z", true);
+    declare_parameter("workspace_floor_z", 0.0);
+    declare_parameter("min_link6_z", 0.03);
+    declare_parameter("min_tcp_z", 0.05);
     declare_parameter("body_goal", std::vector<double>{0.45, 0.0, 0.9});
     declare_parameter("orientation_goal", std::vector<double>{0.0, 0.0, 1.0});
     declare_parameter("initial_q", std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
@@ -246,6 +252,7 @@ public:
     declare_parameter("joint_velocity_cap_velocity_damping_region", 0.15);
     declare_parameter("joint_velocity_cap_damping_gain", 5.0);
     declare_parameter("joint_velocity_cap_metric_weight", 0.05);
+    declare_parameter("max_joint_accel", 20.0);
     declare_parameter("target_rmp_accel_p_gain", 50.0);
     declare_parameter("target_rmp_accel_d_gain", 70.0);
     declare_parameter("target_rmp_accel_norm_eps", 0.075);
@@ -255,6 +262,9 @@ public:
     declare_parameter("target_rmp_min_metric_scalar", 0.5);
     declare_parameter("target_rmp_proximity_metric_boost_scalar", 3.0);
     declare_parameter("target_rmp_proximity_metric_boost_length_scale", 0.02);
+    declare_parameter("orientation_rmp_accel_p_gain", 6.0);
+    declare_parameter("orientation_rmp_accel_d_gain", 10.0);
+    declare_parameter("orientation_rmp_metric_scalar", 0.08);
     declare_parameter("collision_rmp_margin", 0.0);
     declare_parameter("collision_rmp_damping_gain", 50.0);
     declare_parameter("collision_rmp_damping_std_dev", 0.04);
@@ -276,29 +286,40 @@ public:
     for (std::size_t index = 0; index < std::min<std::size_t>(initial_q.size(), 6); ++index) {
       state_.q[static_cast<int>(index)] = initial_q[index];
     }
+    const auto initial_context = RB10Model::forward_context(state_.q);
     goal_ = Eigen::Vector3d(
       get_parameter("goal_x").as_double(),
       get_parameter("goal_y").as_double(),
       get_parameter("goal_z").as_double());
     body_goal_ = parse_vector3_parameter("body_goal", Eigen::Vector3d(0.45, 0.0, 0.9));
-    orientation_goal_ = parse_vector3_parameter("orientation_goal", Eigen::Vector3d(0.0, 0.0, 1.0));
+    goal_orientation_ = Eigen::Quaterniond(initial_context.link_rotations[RB10Model::TCP_RMP]);
+    goal_orientation_.normalize();
     declare_graph_parameters();
     declare_body_obstacle_parameters();
     obstacles_.push_back(ObstacleSphere{});
     const auto solver_config = build_solver_config();
     configure_external_rmp_inputs(solver_config.graph_nodes);
     solver_ = build_solver(solver_config);
+    body_obstacles_visual_ = solver_config.body_obstacles;
 
     joint_state_pub_ = create_publisher<sensor_msgs::msg::JointState>("joint_states", 10);
     goal_marker_pub_ = create_publisher<visualization_msgs::msg::Marker>("goal_marker", 10);
     control_point_pub_ =
       create_publisher<visualization_msgs::msg::MarkerArray>("control_points", 10);
+    body_obstacle_pub_ =
+      create_publisher<visualization_msgs::msg::MarkerArray>("body_obstacle_markers", 10);
     eef_pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("end_effector_pose", 10);
+    debug_state_pub_ =
+      create_publisher<std_msgs::msg::Float64MultiArray>("rmp_debug_state", 10);
 
     goal_sub_ = create_subscription<geometry_msgs::msg::Point>(
       "goal_position",
       10,
       std::bind(&RmpflowControllerNode::on_goal, this, std::placeholders::_1));
+    goal_pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+      "goal_pose",
+      10,
+      std::bind(&RmpflowControllerNode::on_goal_pose, this, std::placeholders::_1));
     obstacle_sub_ = create_subscription<visualization_msgs::msg::MarkerArray>(
       "obstacles",
       10,
@@ -345,7 +366,29 @@ private:
   void on_goal(const geometry_msgs::msg::Point::SharedPtr msg)
   {
     std::scoped_lock lock(goal_mutex_);
-    goal_ = Eigen::Vector3d(msg->x, msg->y, msg->z);
+    goal_ = Eigen::Vector3d(
+      msg->x,
+      msg->y,
+      std::max(msg->z, get_parameter("min_goal_z").as_double()));
+  }
+
+  void on_goal_pose(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+  {
+    std::scoped_lock lock(goal_mutex_);
+    goal_ = Eigen::Vector3d(
+      msg->pose.position.x,
+      msg->pose.position.y,
+      std::max(msg->pose.position.z, get_parameter("min_goal_z").as_double()));
+    Eigen::Quaterniond goal_orientation(
+      msg->pose.orientation.w,
+      msg->pose.orientation.x,
+      msg->pose.orientation.y,
+      msg->pose.orientation.z);
+    if (!goal_orientation.coeffs().allFinite() || goal_orientation.norm() < 1e-9) {
+      goal_orientation_ = Eigen::Quaterniond::Identity();
+    } else {
+      goal_orientation_ = goal_orientation.normalized();
+    }
   }
 
   void on_obstacles(const visualization_msgs::msg::MarkerArray::SharedPtr msg)
@@ -436,6 +479,12 @@ private:
       get_parameter("target_rmp_proximity_metric_boost_scalar").as_double();
     config.target.proximity_metric_boost_length_scale =
       get_parameter("target_rmp_proximity_metric_boost_length_scale").as_double();
+    config.orientation.accel_p_gain =
+      get_parameter("orientation_rmp_accel_p_gain").as_double();
+    config.orientation.accel_d_gain =
+      get_parameter("orientation_rmp_accel_d_gain").as_double();
+    config.orientation.metric_scalar =
+      get_parameter("orientation_rmp_metric_scalar").as_double();
 
     config.collision.margin = get_parameter("collision_rmp_margin").as_double();
     config.collision.damping_gain = get_parameter("collision_rmp_damping_gain").as_double();
@@ -555,6 +604,7 @@ private:
       const std::string prefix = "body_obstacles." + name + ".";
       BodyObstacle obstacle;
       obstacle.type = get_parameter(prefix + "type").as_string();
+      obstacle.link_name = get_parameter(prefix + "link_name").as_string();
       obstacle.mins = parse_vector3_parameter(prefix + "mins", Eigen::Vector3d::Zero());
       obstacle.maxs = parse_vector3_parameter(prefix + "maxs", Eigen::Vector3d::Zero());
       obstacle.center = parse_vector3_parameter(prefix + "center", Eigen::Vector3d::Zero());
@@ -566,11 +616,7 @@ private:
 
   int control_point_count() const
   {
-    int count = 0;
-    for (const auto & spec : RB10Model::control_point_specs) {
-      count += spec.interpolation_points;
-    }
-    return count;
+    return static_cast<int>(RB10Model::sensor_control_points.size());
   }
 
   std::vector<std::size_t> build_topological_order(
@@ -809,6 +855,7 @@ private:
     for (const auto & name : names) {
       const std::string prefix = "body_obstacles." + name + ".";
       declare_parameter(prefix + "type", "ball");
+      declare_parameter(prefix + "link_name", "");
       declare_parameter(prefix + "mins", std::vector<double>{0.0, 0.0, 0.0});
       declare_parameter(prefix + "maxs", std::vector<double>{0.0, 0.0, 0.0});
       declare_parameter(prefix + "center", std::vector<double>{0.0, 0.0, 0.0});
@@ -828,15 +875,184 @@ private:
     return out;
   }
 
+  std::size_t link_index_from_name(const std::string & link_name) const
+  {
+    for (std::size_t index = 0; index < RB10Model::link_names.size(); ++index) {
+      if (link_name == RB10Model::link_names[index]) {
+        return index;
+      }
+    }
+    throw std::runtime_error("Unknown RB10 link name: " + link_name);
+  }
+
+  Eigen::Vector3d body_obstacle_center_world(
+    const BodyObstacle & obstacle,
+    const KinematicsContext & context) const
+  {
+    if (!obstacle.link_name.empty()) {
+      const auto link_index = link_index_from_name(obstacle.link_name);
+      const auto & rotation = context.link_rotations[link_index];
+      const auto & origin = context.link_positions[link_index];
+      if (obstacle.type == "box") {
+        return origin + rotation * (0.5 * (obstacle.mins + obstacle.maxs));
+      }
+      return origin + rotation * obstacle.center;
+    }
+
+    if (obstacle.type == "box") {
+      return 0.5 * (obstacle.mins + obstacle.maxs);
+    }
+    return obstacle.center;
+  }
+
+  double body_obstacle_min_z_world(
+    const BodyObstacle & obstacle,
+    const KinematicsContext & context) const
+  {
+    if (obstacle.type == "ball") {
+      return body_obstacle_center_world(obstacle, context).z() - obstacle.radius;
+    }
+
+    Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
+    Eigen::Vector3d origin = Eigen::Vector3d::Zero();
+    if (!obstacle.link_name.empty()) {
+      const auto link_index = link_index_from_name(obstacle.link_name);
+      rotation = context.link_rotations[link_index];
+      origin = context.link_positions[link_index];
+    }
+
+    double min_z = std::numeric_limits<double>::infinity();
+    for (int x_sel = 0; x_sel < 2; ++x_sel) {
+      for (int y_sel = 0; y_sel < 2; ++y_sel) {
+        for (int z_sel = 0; z_sel < 2; ++z_sel) {
+          const Eigen::Vector3d local_corner(
+            x_sel == 0 ? obstacle.mins.x() : obstacle.maxs.x(),
+            y_sel == 0 ? obstacle.mins.y() : obstacle.maxs.y(),
+            z_sel == 0 ? obstacle.mins.z() : obstacle.maxs.z());
+          min_z = std::min(min_z, (origin + rotation * local_corner).z());
+        }
+      }
+    }
+    return min_z;
+  }
+
+  bool body_obstacle_interacts_with_sensor_control_point(
+    std::size_t /*point_index*/,
+    const BodyObstacle & obstacle) const
+  {
+    return obstacle.link_name != "link3" && obstacle.link_name != "link3_5";
+  }
+
+  struct FloorSafetyMetrics
+  {
+    double min_link_z{std::numeric_limits<double>::infinity()};
+    double min_joint_z{std::numeric_limits<double>::infinity()};
+    double min_control_point_z{std::numeric_limits<double>::infinity()};
+    double min_body_obstacle_z{std::numeric_limits<double>::infinity()};
+  };
+
+  FloorSafetyMetrics compute_floor_safety_metrics(const KinematicsContext & context) const
+  {
+    FloorSafetyMetrics metrics;
+    for (const auto & position : context.link_positions) {
+      metrics.min_link_z = std::min(metrics.min_link_z, position.z());
+    }
+    for (const auto & origin : context.joint_origins) {
+      metrics.min_joint_z = std::min(metrics.min_joint_z, origin.z());
+    }
+    for (const auto & control_point : context.control_points) {
+      metrics.min_control_point_z = std::min(
+        metrics.min_control_point_z,
+        control_point.position.z() - control_point.radius);
+    }
+    for (const auto & obstacle : body_obstacles_visual_) {
+      metrics.min_body_obstacle_z = std::min(
+        metrics.min_body_obstacle_z,
+        body_obstacle_min_z_world(obstacle, context));
+    }
+    return metrics;
+  }
+
+  void publish_debug_state(const KinematicsContext & context)
+  {
+    Eigen::Vector3d goal;
+    std::vector<ObstacleSphere> obstacles;
+    {
+      std::scoped_lock goal_lock(goal_mutex_);
+      goal = goal_;
+    }
+    {
+      std::scoped_lock obstacle_lock(obstacles_mutex_);
+      obstacles = obstacles_;
+    }
+
+    double min_external_clearance = std::numeric_limits<double>::infinity();
+    for (const auto & control_point : context.control_points) {
+      for (const auto & obstacle : obstacles) {
+        const double clearance =
+          (control_point.position - obstacle.center).norm() -
+          (control_point.radius + obstacle.radius);
+        min_external_clearance = std::min(min_external_clearance, clearance);
+      }
+    }
+
+    double min_body_clearance = std::numeric_limits<double>::infinity();
+    for (std::size_t point_index = 0; point_index < context.control_points.size(); ++point_index) {
+      const auto & control_point = context.control_points[point_index];
+      for (const auto & obstacle : body_obstacles_visual_) {
+        if (!body_obstacle_interacts_with_sensor_control_point(point_index, obstacle)) {
+          continue;
+        }
+        if (obstacle.type != "ball") {
+          continue;
+        }
+        const auto center = body_obstacle_center_world(obstacle, context);
+        const double clearance =
+          (control_point.position - center).norm() -
+          (control_point.radius + obstacle.radius);
+        min_body_clearance = std::min(min_body_clearance, clearance);
+      }
+    }
+
+    if (!std::isfinite(min_external_clearance)) {
+      min_external_clearance = 1e6;
+    }
+    if (!std::isfinite(min_body_clearance)) {
+      min_body_clearance = 1e6;
+    }
+
+    const auto floor_metrics = compute_floor_safety_metrics(context);
+
+    std_msgs::msg::Float64MultiArray debug;
+    debug.data = {
+      (context.tcp_position - goal).norm(),
+      context.tcp_position.z(),
+      context.link_positions[RB10Model::LINK6].z(),
+      min_external_clearance,
+      min_body_clearance,
+      state_.qd.norm(),
+      last_min_z_safety_triggered_.load() ? 1.0 : 0.0,
+      floor_metrics.min_link_z,
+      floor_metrics.min_joint_z,
+      floor_metrics.min_control_point_z,
+      floor_metrics.min_body_obstacle_z,
+    };
+    debug_state_pub_->publish(debug);
+  }
+
   JointVector compute_command(
     const RobotState & state,
     const Eigen::Vector3d & goal,
+    const Eigen::Quaterniond & goal_orientation,
     const std::vector<ObstacleSphere> & obstacles) const
   {
     std::unordered_map<std::string, Eigen::Vector3d> vector_targets;
     vector_targets.emplace("goal", goal);
     vector_targets.emplace("body_goal", body_goal_);
-    vector_targets.emplace("orientation_goal", orientation_goal_);
+    const Eigen::Matrix3d goal_rotation = goal_orientation.normalized().toRotationMatrix();
+    vector_targets.emplace("orientation_goal_x", goal_rotation.col(0));
+    vector_targets.emplace("orientation_goal_y", goal_rotation.col(1));
+    vector_targets.emplace("orientation_goal_z", goal_rotation.col(2));
     std::unordered_map<std::string, ExternalRmpFeature> external_rmps;
     {
       std::scoped_lock lock(external_rmp_mutex_);
@@ -852,10 +1068,30 @@ private:
     }
     const auto solution = solver_->solve(state.q, state.qd, vector_targets, obstacles, external_rmps);
     JointVector qdd = solution.qdd;
+    const double max_joint_accel = get_parameter("max_joint_accel").as_double();
     for (int index = 0; index < qdd.size(); ++index) {
-      qdd[index] = std::clamp(qdd[index], -50.0, 50.0);
+      qdd[index] = std::clamp(qdd[index], -max_joint_accel, max_joint_accel);
     }
     return qdd;
+  }
+
+  bool violates_min_z_safety(const RobotState & state) const
+  {
+    if (!get_parameter("safety_stop_on_min_z").as_bool()) {
+      return false;
+    }
+
+    const auto context = RB10Model::forward_context(state.q);
+    const auto floor_metrics = compute_floor_safety_metrics(context);
+    const double workspace_floor_z = get_parameter("workspace_floor_z").as_double();
+    const double min_link6_z = get_parameter("min_link6_z").as_double();
+    const double min_tcp_z = get_parameter("min_tcp_z").as_double();
+    return
+      floor_metrics.min_link_z < workspace_floor_z ||
+      floor_metrics.min_joint_z < workspace_floor_z ||
+      floor_metrics.min_control_point_z < workspace_floor_z ||
+      context.link_positions[RB10Model::LINK6].z() < min_link6_z ||
+      context.link_positions[RB10Model::TCP_RMP].z() < min_tcp_z;
   }
 
   void control_loop()
@@ -875,10 +1111,12 @@ private:
 
       RobotState state = backend_->read_state();
       Eigen::Vector3d goal;
+      Eigen::Quaterniond goal_orientation;
       std::vector<ObstacleSphere> obstacles;
       {
         std::scoped_lock goal_lock(goal_mutex_);
         goal = goal_;
+        goal_orientation = goal_orientation_;
       }
       {
         std::scoped_lock obstacle_lock(obstacles_mutex_);
@@ -886,8 +1124,9 @@ private:
       }
 
       JointVector qdd = JointVector::Zero();
+      last_min_z_safety_triggered_.store(false);
       try {
-        qdd = compute_command(state, goal, obstacles);
+        qdd = compute_command(state, goal, goal_orientation, obstacles);
       } catch (const std::exception & error) {
         RCLCPP_ERROR_THROTTLE(
           get_logger(),
@@ -895,6 +1134,19 @@ private:
           2000,
           "RMP solve failed, holding command at zero acceleration: %s",
           error.what());
+      }
+      RobotState predicted_state = state;
+      predicted_state.qd += qdd * period.count();
+      predicted_state.q += predicted_state.qd * period.count();
+      predicted_state.q = RB10Model::clamp_positions(predicted_state.q);
+      if (violates_min_z_safety(state) || violates_min_z_safety(predicted_state)) {
+        qdd.setZero();
+        last_min_z_safety_triggered_.store(true);
+        RCLCPP_ERROR_THROTTLE(
+          get_logger(),
+          *get_clock(),
+          1000,
+          "Min-Z safety triggered. Holding zero acceleration to avoid driving below workspace.");
       }
       backend_->apply_acceleration(qdd, period.count(), RB10Model::joint_names);
       state_ = backend_->read_state();
@@ -918,6 +1170,7 @@ private:
   {
     const auto state = backend_->read_state();
     const auto context = RB10Model::forward_context(state.q);
+    publish_debug_state(context);
     Eigen::Vector3d goal;
     {
       std::scoped_lock lock(goal_mutex_);
@@ -968,6 +1221,68 @@ private:
     }
     control_point_pub_->publish(points);
 
+    visualization_msgs::msg::MarkerArray body_obstacles;
+    for (std::size_t index = 0; index < body_obstacles_visual_.size(); ++index) {
+      const auto & obstacle = body_obstacles_visual_[index];
+      visualization_msgs::msg::Marker marker;
+      marker.header.frame_id = "base_link";
+      marker.header.stamp = now();
+      marker.ns = "body_obstacles";
+      marker.id = static_cast<int>(index);
+      marker.action = visualization_msgs::msg::Marker::ADD;
+      marker.color.r = 1.0F;
+      marker.color.g = 0.6F;
+      marker.color.b = 0.0F;
+      marker.color.a = 0.22F;
+
+      Eigen::Vector3d center = obstacle.center;
+      Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
+      if (!obstacle.link_name.empty()) {
+        const auto link_index = link_index_from_name(obstacle.link_name);
+        rotation = context.link_rotations[link_index];
+        if (obstacle.type == "box") {
+          center =
+            context.link_positions[link_index] +
+            rotation * (0.5 * (obstacle.mins + obstacle.maxs));
+        } else {
+          center =
+            context.link_positions[link_index] +
+            rotation * obstacle.center;
+        }
+      } else if (obstacle.type == "box") {
+        center = 0.5 * (obstacle.mins + obstacle.maxs);
+      }
+
+      marker.pose.position.x = center.x();
+      marker.pose.position.y = center.y();
+      marker.pose.position.z = center.z();
+
+      if (obstacle.type == "ball") {
+        marker.type = visualization_msgs::msg::Marker::SPHERE;
+        marker.pose.orientation.w = 1.0;
+        marker.scale.x = obstacle.radius * 2.0;
+        marker.scale.y = obstacle.radius * 2.0;
+        marker.scale.z = obstacle.radius * 2.0;
+      } else if (obstacle.type == "box") {
+        marker.type = visualization_msgs::msg::Marker::CUBE;
+        Eigen::Quaterniond q(rotation);
+        q.normalize();
+        marker.pose.orientation.x = q.x();
+        marker.pose.orientation.y = q.y();
+        marker.pose.orientation.z = q.z();
+        marker.pose.orientation.w = q.w();
+        const Eigen::Vector3d size = obstacle.maxs - obstacle.mins;
+        marker.scale.x = size.x();
+        marker.scale.y = size.y();
+        marker.scale.z = size.z();
+      } else {
+        continue;
+      }
+
+      body_obstacles.markers.push_back(marker);
+    }
+    body_obstacle_pub_->publish(body_obstacles);
+
     geometry_msgs::msg::PoseStamped eef_pose;
     const Eigen::Vector3d & eef = context.tcp_position;
     eef_pose.header.frame_id = "base_link";
@@ -975,7 +1290,12 @@ private:
     eef_pose.pose.position.x = eef.x();
     eef_pose.pose.position.y = eef.y();
     eef_pose.pose.position.z = eef.z();
-    eef_pose.pose.orientation.w = 1.0;
+    Eigen::Quaterniond tcp_orientation(context.link_rotations[RB10Model::TCP_RMP]);
+    tcp_orientation.normalize();
+    eef_pose.pose.orientation.x = tcp_orientation.x();
+    eef_pose.pose.orientation.y = tcp_orientation.y();
+    eef_pose.pose.orientation.z = tcp_orientation.z();
+    eef_pose.pose.orientation.w = tcp_orientation.w();
     eef_pose_pub_->publish(eef_pose);
   }
 
@@ -986,8 +1306,10 @@ private:
   RobotState state_;
   Eigen::Vector3d goal_;
   Eigen::Vector3d body_goal_;
-  Eigen::Vector3d orientation_goal_;
+  Eigen::Quaterniond goal_orientation_{Eigen::Quaterniond::Identity()};
   std::vector<ObstacleSphere> obstacles_;
+  std::vector<BodyObstacle> body_obstacles_visual_;
+  std::atomic<bool> last_min_z_safety_triggered_{false};
   std::mutex goal_mutex_;
   std::mutex obstacles_mutex_;
   mutable std::mutex external_rmp_mutex_;
@@ -996,8 +1318,11 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr goal_marker_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr control_point_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr body_obstacle_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr eef_pose_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr debug_state_pub_;
   rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr goal_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pose_sub_;
   rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr obstacle_sub_;
   std::vector<rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr> external_metric_subs_;
   std::vector<rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr> external_accel_subs_;

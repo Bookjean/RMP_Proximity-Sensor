@@ -17,6 +17,7 @@
   <depend>visualization_msgs</depend>
   <depend>interactive_markers</depend>
   <depend>tf2_ros</depend>
+  <exec_depend>rclpy</exec_depend>
   <depend>robot_state_publisher</depend>
   <depend>joint_state_publisher</depend>
   <depend>rviz2</depend>

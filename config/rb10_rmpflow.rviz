@@ -86,6 +86,18 @@ Visualization Manager:
 
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
+      Name: BodyObstacles
+      Namespaces:
+        body_obstacles: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /body_obstacle_markers
+
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
       Name: TofRays
       Namespaces:
         tof_rays: true

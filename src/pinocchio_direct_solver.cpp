@@ -146,6 +146,16 @@ int link_index_from_name(const std::string & link_name)
   throw std::runtime_error("Unsupported RB10 link name: " + link_name);
 }
 
+bool body_obstacle_interacts_with_sensor_control_point(
+  int /*point_index*/,
+  const BodyObstacle & obstacle)
+{
+  // The sensor control points are rigidly mounted to the link3 lower-arm assembly.
+  // Guards on that same rigid assembly are for visualization/coverage and should
+  // not generate self-repulsion.
+  return obstacle.link_name != "link3" && obstacle.link_name != "link3_5";
+}
+
 PinocchioDirectRmpSolver::JointVector resolve_root_direct(
   const PinocchioDirectRmpSolver::Matrix6 & metric,
   const PinocchioDirectRmpSolver::JointVector & force,
@@ -301,11 +311,7 @@ Eigen::VectorXd PinocchioDirectRmpSolver::velocity_of(
 
 int PinocchioDirectRmpSolver::control_point_count()
 {
-  int count = 0;
-  for (const auto & spec : RB10Model::control_point_specs) {
-    count += spec.interpolation_points;
-  }
-  return count;
+  return static_cast<int>(RB10Model::sensor_control_points.size());
 }
 
 bool PinocchioDirectRmpSolver::uses_casadi_task_map(const std::string & task_map_type)
@@ -602,18 +608,55 @@ PinocchioDirectRmpSolver::NodeGeometry PinocchioDirectRmpSolver::evaluate_native
     out.curvature.resize(num_control_points * total_obstacles);
 
     int row = 0;
-    int radius_index = 0;
-    for (const auto & spec : RB10Model::control_point_specs) {
-      for (int point = 0; point < spec.interpolation_points; ++point, ++radius_index) {
-        const auto position = parent.x.segment<3>(3 * radius_index);
-        const auto point_jacobian = parent.jacobian.block(3 * radius_index, 0, 3, 6);
-        const Eigen::Vector3d point_velocity = parent.velocity.segment<3>(3 * radius_index);
-        const Eigen::Vector3d point_curvature = parent.curvature.segment<3>(3 * radius_index);
-        for (const auto & obstacle : obstacles) {
-          const Eigen::Vector3d delta = position - obstacle.center;
+    for (int point_index = 0; point_index < num_control_points; ++point_index) {
+      const double point_radius =
+        RB10Model::sensor_control_points[static_cast<std::size_t>(point_index)].radius;
+      const auto position = parent.x.segment<3>(3 * point_index);
+      const auto point_jacobian = parent.jacobian.block(3 * point_index, 0, 3, 6);
+      const Eigen::Vector3d point_velocity = parent.velocity.segment<3>(3 * point_index);
+      const Eigen::Vector3d point_curvature = parent.curvature.segment<3>(3 * point_index);
+      for (const auto & obstacle : obstacles) {
+        const Eigen::Vector3d delta = position - obstacle.center;
+        const double center_distance = std::max(delta.norm(), 1e-9);
+        const double signed_distance =
+          center_distance - (point_radius + obstacle.radius) - config_.collision.margin;
+        const double x = std::max(signed_distance, 0.0);
+        const Eigen::RowVectorXd jacobian =
+          (delta / center_distance).transpose() * point_jacobian;
+        const double velocity = (delta / center_distance).dot(point_velocity);
+        double curvature = 0.0;
+        if (signed_distance > 0.0) {
+          const Eigen::Matrix3d projector =
+            (Eigen::Matrix3d::Identity() -
+            (delta / center_distance) * (delta / center_distance).transpose()) /
+            center_distance;
+          curvature =
+            (delta / center_distance).dot(point_curvature) +
+            point_velocity.transpose() * projector * point_velocity;
+        }
+        out.x[row] = x;
+        out.jacobian.row(row) = jacobian;
+        out.velocity[row] = signed_distance > 0.0 ? velocity : 0.0;
+        out.curvature[row] = curvature;
+        ++row;
+      }
+      for (const auto & obstacle : config_.body_obstacles) {
+        if (!body_obstacle_interacts_with_sensor_control_point(point_index, obstacle)) {
+          continue;
+        }
+        if (obstacle.type == "ball") {
+          Eigen::Vector3d obstacle_center = obstacle.center;
+          if (!obstacle.link_name.empty()) {
+            const auto link_index =
+              link_index_from_name(obstacle.link_name);
+            obstacle_center =
+              context.link_positions[static_cast<std::size_t>(link_index)] +
+              context.link_rotations[static_cast<std::size_t>(link_index)] * obstacle.center;
+          }
+          const Eigen::Vector3d delta = position - obstacle_center;
           const double center_distance = std::max(delta.norm(), 1e-9);
           const double signed_distance =
-            center_distance - (spec.radius + obstacle.radius) - config_.collision.margin;
+            center_distance - (point_radius + obstacle.radius) - config_.collision.margin;
           const double x = std::max(signed_distance, 0.0);
           const Eigen::RowVectorXd jacobian =
             (delta / center_distance).transpose() * point_jacobian;
@@ -633,70 +676,58 @@ PinocchioDirectRmpSolver::NodeGeometry PinocchioDirectRmpSolver::evaluate_native
           out.velocity[row] = signed_distance > 0.0 ? velocity : 0.0;
           out.curvature[row] = curvature;
           ++row;
-        }
-        for (const auto & obstacle : config_.body_obstacles) {
-          if (obstacle.type == "ball") {
-            const Eigen::Vector3d delta = position - obstacle.center;
-            const double center_distance = std::max(delta.norm(), 1e-9);
-            const double signed_distance =
-              center_distance - (spec.radius + obstacle.radius) - config_.collision.margin;
-            const double x = std::max(signed_distance, 0.0);
-            const Eigen::RowVectorXd jacobian =
-              (delta / center_distance).transpose() * point_jacobian;
-            const double velocity = (delta / center_distance).dot(point_velocity);
-            double curvature = 0.0;
-            if (signed_distance > 0.0) {
-              const Eigen::Matrix3d projector =
-                (Eigen::Matrix3d::Identity() -
-                (delta / center_distance) * (delta / center_distance).transpose()) /
-                center_distance;
-              curvature =
-                (delta / center_distance).dot(point_curvature) +
-                point_velocity.transpose() * projector * point_velocity;
-            }
-            out.x[row] = x;
-            out.jacobian.row(row) = jacobian;
-            out.velocity[row] = signed_distance > 0.0 ? velocity : 0.0;
-            out.curvature[row] = curvature;
-            ++row;
-          } else if (obstacle.type == "box") {
-            const Eigen::Vector3d clamped = position.cwiseMax(obstacle.mins).cwiseMin(obstacle.maxs);
-            const Eigen::Vector3d delta = position - clamped;
-            const double outside_distance = delta.norm();
-            const double signed_distance =
-              outside_distance - spec.radius - config_.collision.margin;
-            const double x = std::max(signed_distance, 0.0);
-            Eigen::Vector3d grad = Eigen::Vector3d::Zero();
-            if (outside_distance > 1e-9) {
-              grad = delta / outside_distance;
-            } else {
-              const Eigen::Vector3d dist_to_min = position - obstacle.mins;
-              const Eigen::Vector3d dist_to_max = obstacle.maxs - position;
-              Eigen::Index axis = 0;
-              double min_face = dist_to_min[0];
-              for (Eigen::Index idx = 0; idx < 3; ++idx) {
-                if (dist_to_min[idx] < min_face) {
-                  min_face = dist_to_min[idx];
-                  axis = idx;
-                }
-                if (dist_to_max[idx] < min_face) {
-                  min_face = dist_to_max[idx];
-                  axis = idx;
-                }
-              }
-              grad[axis] = (dist_to_min[axis] < dist_to_max[axis]) ? -1.0 : 1.0;
-            }
-            const Eigen::RowVectorXd jacobian = grad.transpose() * point_jacobian;
-            const double velocity = grad.dot(point_velocity);
-            const double curvature = grad.dot(point_curvature);
-            out.x[row] = x;
-            out.jacobian.row(row) = jacobian;
-            out.velocity[row] = signed_distance > 0.0 ? velocity : 0.0;
-            out.curvature[row] = signed_distance > 0.0 ? curvature : 0.0;
-            ++row;
-          } else {
-            throw std::runtime_error("Unsupported body obstacle type: " + obstacle.type);
+        } else if (obstacle.type == "box") {
+          Eigen::Vector3d local_position = position;
+          Eigen::Matrix3d obstacle_rotation = Eigen::Matrix3d::Identity();
+          Eigen::Vector3d obstacle_origin = Eigen::Vector3d::Zero();
+          if (!obstacle.link_name.empty()) {
+            const auto link_index =
+              link_index_from_name(obstacle.link_name);
+            obstacle_rotation =
+              context.link_rotations[static_cast<std::size_t>(link_index)];
+            obstacle_origin =
+              context.link_positions[static_cast<std::size_t>(link_index)];
+            local_position =
+              obstacle_rotation.transpose() * (position - obstacle_origin);
           }
+          const Eigen::Vector3d clamped =
+            local_position.cwiseMax(obstacle.mins).cwiseMin(obstacle.maxs);
+          const Eigen::Vector3d delta = local_position - clamped;
+          const double outside_distance = delta.norm();
+          const double signed_distance =
+            outside_distance - point_radius - config_.collision.margin;
+          const double x = std::max(signed_distance, 0.0);
+          Eigen::Vector3d grad_local = Eigen::Vector3d::Zero();
+          if (outside_distance > 1e-9) {
+            grad_local = delta / outside_distance;
+          } else {
+            const Eigen::Vector3d dist_to_min = local_position - obstacle.mins;
+            const Eigen::Vector3d dist_to_max = obstacle.maxs - local_position;
+            Eigen::Index axis = 0;
+            double min_face = dist_to_min[0];
+            for (Eigen::Index idx = 0; idx < 3; ++idx) {
+              if (dist_to_min[idx] < min_face) {
+                min_face = dist_to_min[idx];
+                axis = idx;
+              }
+              if (dist_to_max[idx] < min_face) {
+                min_face = dist_to_max[idx];
+                axis = idx;
+              }
+            }
+            grad_local[axis] = (dist_to_min[axis] < dist_to_max[axis]) ? -1.0 : 1.0;
+          }
+          const Eigen::Vector3d grad = obstacle_rotation * grad_local;
+          const Eigen::RowVectorXd jacobian = grad.transpose() * point_jacobian;
+          const double velocity = grad.dot(point_velocity);
+          const double curvature = grad.dot(point_curvature);
+          out.x[row] = x;
+          out.jacobian.row(row) = jacobian;
+          out.velocity[row] = signed_distance > 0.0 ? velocity : 0.0;
+          out.curvature[row] = signed_distance > 0.0 ? curvature : 0.0;
+          ++row;
+        } else {
+          throw std::runtime_error("Unsupported body obstacle type: " + obstacle.type);
         }
       }
     }
@@ -854,6 +885,13 @@ void PinocchioDirectRmpSolver::accumulate_leaf_type(
     const auto target_it = vector_targets.find(node.target_key);
     if (target_it != vector_targets.end()) {
       accumulate_target(geometry, qd, target_it->second, metric, force);
+    }
+    return;
+  }
+  if (leaf_type == "orientation_target") {
+    const auto target_it = vector_targets.find(node.target_key);
+    if (target_it != vector_targets.end()) {
+      accumulate_orientation_target(geometry, qd, target_it->second, metric, force);
     }
     return;
   }
@@ -1022,6 +1060,39 @@ void PinocchioDirectRmpSolver::accumulate_target(
   const double metric_boost_scalar =
     boost_alpha * config_.target.proximity_metric_boost_scalar + (1.0 - boost_alpha);
   leaf_metric *= metric_boost_scalar;
+
+  accumulate_vector_leaf(
+    use_natural_rmp,
+    geometry.jacobian,
+    leaf_metric,
+    acceleration,
+    geometry.curvature,
+    metric,
+    force);
+}
+
+void PinocchioDirectRmpSolver::accumulate_orientation_target(
+  const NodeGeometry & geometry,
+  const JointVector & qd,
+  const Eigen::Vector3d & goal,
+  Matrix6 & metric,
+  JointVector & force) const
+{
+  const bool use_natural_rmp = uses_rmp2_solve() && uses_natural_rmp();
+  if (geometry.x.size() != 3) {
+    throw std::runtime_error("orientation_target leaf expects 3D task map output");
+  }
+
+  const auto velocity = velocity_of(geometry, qd);
+  const Eigen::Vector3d x = geometry.x.normalized();
+  const Eigen::Vector3d xd = velocity;
+  const Eigen::Vector3d goal_unit = goal.normalized();
+  const Eigen::Vector3d delta = goal_unit - x;
+  const Eigen::Vector3d acceleration =
+    config_.orientation.accel_p_gain * delta -
+    config_.orientation.accel_d_gain * xd;
+  const Eigen::Matrix3d leaf_metric =
+    config_.orientation.metric_scalar * Eigen::Matrix3d::Identity();
 
   accumulate_vector_leaf(
     use_natural_rmp,

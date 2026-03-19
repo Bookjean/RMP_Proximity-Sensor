@@ -24,6 +24,7 @@ struct ObstacleSphere
 struct BodyObstacle
 {
   std::string type{"ball"};
+  std::string link_name{""};
   Eigen::Vector3d mins{Eigen::Vector3d::Zero()};
   Eigen::Vector3d maxs{Eigen::Vector3d::Zero()};
   Eigen::Vector3d center{Eigen::Vector3d::Zero()};
@@ -77,6 +78,13 @@ struct TargetRmpParams
   double min_metric_scalar{0.5};
   double proximity_metric_boost_scalar{3.0};
   double proximity_metric_boost_length_scale{0.02};
+};
+
+struct OrientationTargetParams
+{
+  double accel_p_gain{6.0};
+  double accel_d_gain{10.0};
+  double metric_scalar{0.08};
 };
 
 struct CollisionRmpParams
@@ -238,6 +246,7 @@ struct EigenRmpConfig
   JointLimitParams joint_limit{};
   JointVelocityCapParams joint_velocity_cap{};
   TargetRmpParams target{};
+  OrientationTargetParams orientation{};
   CollisionRmpParams collision{};
   DampingRmpParams damping{};
   std::vector<BodyObstacle> body_obstacles;

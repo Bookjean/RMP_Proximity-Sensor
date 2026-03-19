@@ -116,6 +116,13 @@ private:
     Matrix6 & metric,
     JointVector & force) const;
 
+  void accumulate_orientation_target(
+    const NodeGeometry & geometry,
+    const JointVector & qd,
+    const Eigen::Vector3d & goal,
+    Matrix6 & metric,
+    JointVector & force) const;
+
   void accumulate_collision(
     const NodeGeometry & geometry,
     const JointVector & qd,

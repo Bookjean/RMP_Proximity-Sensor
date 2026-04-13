@@ -11,6 +11,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/range.hpp"
+#include "std_msgs/msg/u_int8.hpp"
 #include "tf2/exceptions.h"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/create_timer_ros.h"
@@ -38,7 +39,10 @@ public:
     declare_parameter("obstacle_radius", 0.05);
     declare_parameter("valid_margin", 1e-3);
     declare_parameter("range_scale", 0.001);
-    declare_parameter("trigger_distance", 0.3);
+    declare_parameter("trigger_distance", 0.15);
+    declare_parameter("rmp_flag_gate_enabled", false);
+    declare_parameter("rmp_flag_topic", "/RMP_flag");
+    declare_parameter("rmp_active_flag_value", 1);
     declare_parameter(
       "range_topics",
       std::vector<std::string>{
@@ -55,6 +59,9 @@ public:
     valid_margin_ = get_parameter("valid_margin").as_double();
     range_scale_ = get_parameter("range_scale").as_double();
     trigger_distance_ = get_parameter("trigger_distance").as_double();
+    rmp_flag_gate_enabled_ = get_parameter("rmp_flag_gate_enabled").as_bool();
+    rmp_active_flag_value_ = static_cast<int>(get_parameter("rmp_active_flag_value").as_int());
+    rmp_active_ = !rmp_flag_gate_enabled_;
     range_topics_ = get_parameter("range_topics").as_string_array();
     sensor_frames_ = get_parameter("sensor_frames").as_string_array();
 
@@ -71,6 +78,13 @@ public:
     obstacle_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
       get_parameter("obstacle_topic").as_string(),
       10);
+
+    if (rmp_flag_gate_enabled_) {
+      flag_sub_ = create_subscription<std_msgs::msg::UInt8>(
+        get_parameter("rmp_flag_topic").as_string(),
+        10,
+        std::bind(&ProximityObstacleBridgeNode::on_rmp_flag, this, std::placeholders::_1));
+    }
 
     range_subs_.reserve(range_topics_.size());
     for (std::size_t index = 0; index < range_topics_.size(); ++index) {
@@ -92,6 +106,11 @@ public:
 private:
   void publish_obstacles()
   {
+    if (rmp_flag_gate_enabled_ && !rmp_active_) {
+      clear_obstacles_once();
+      return;
+    }
+
     visualization_msgs::msg::MarkerArray msg;
     const auto stamp = now();
 
@@ -141,6 +160,33 @@ private:
     }
 
     obstacle_pub_->publish(msg);
+    obstacles_cleared_for_inactive_ = false;
+  }
+
+  void on_rmp_flag(const std_msgs::msg::UInt8::SharedPtr msg)
+  {
+    const bool requested_active = static_cast<int>(msg->data) == rmp_active_flag_value_;
+    rmp_active_ = requested_active;
+    if (!requested_active) {
+      obstacles_cleared_for_inactive_ = false;
+    }
+  }
+
+  void clear_obstacles_once()
+  {
+    if (obstacles_cleared_for_inactive_) {
+      return;
+    }
+
+    visualization_msgs::msg::Marker clear_marker;
+    clear_marker.header.frame_id = fixed_frame_;
+    clear_marker.header.stamp = now();
+    clear_marker.action = visualization_msgs::msg::Marker::DELETEALL;
+
+    visualization_msgs::msg::MarkerArray clear_array;
+    clear_array.markers.push_back(clear_marker);
+    obstacle_pub_->publish(clear_array);
+    obstacles_cleared_for_inactive_ = true;
   }
 
   bool range_is_valid(const sensor_msgs::msg::Range & msg) const
@@ -187,12 +233,17 @@ private:
   double valid_margin_{1e-3};
   double range_scale_{0.001};
   double trigger_distance_{0.3};
+  bool rmp_flag_gate_enabled_{false};
+  bool rmp_active_{true};
+  bool obstacles_cleared_for_inactive_{false};
+  int rmp_active_flag_value_{1};
   std::vector<std::string> range_topics_;
   std::vector<std::string> sensor_frames_;
   std::vector<std::optional<sensor_msgs::msg::Range>> latest_ranges_;
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
+  rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr flag_sub_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::Range>::SharedPtr> range_subs_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr obstacle_pub_;
   rclcpp::TimerBase::SharedPtr timer_;

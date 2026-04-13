@@ -1,0 +1,23 @@
+name: target_translation_baseline
+description: >
+  Baseline RMP tuning scenario. Capture the startup TCP pose once, then repeat
+  two translational target steps and returns from that same startup pose.
+frame_id: base_link
+publish_rate_hz: 10.0
+startup_settle_sec: 2.0
+use_pose: false
+steps:
+  - name: forward_x_plus_80mm
+    target: startup_offset
+    offset_xyz: [0.08, 0.0, 0.0]
+    hold_sec: 6.0
+  - name: return_start
+    target: startup
+    hold_sec: 4.0
+  - name: lateral_y_minus_80mm
+    target: startup_offset
+    offset_xyz: [0.0, -0.08, 0.0]
+    hold_sec: 6.0
+  - name: return_start
+    target: startup
+    hold_sec: 4.0

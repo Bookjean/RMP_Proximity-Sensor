@@ -11,6 +11,7 @@
 
   <depend>ament_index_cpp</depend>
   <depend>rclcpp</depend>
+  <depend>realtime_tools</depend>
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
@@ -18,13 +19,10 @@
   <depend>interactive_markers</depend>
   <depend>tf2_ros</depend>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
   <depend>robot_state_publisher</depend>
   <depend>joint_state_publisher</depend>
   <depend>rviz2</depend>
-  <exec_depend>moveit_configs_utils</exec_depend>
-  <exec_depend>moveit_ros_move_group</exec_depend>
-  <exec_depend>moveit_ros_visualization</exec_depend>
-  <exec_depend>rbpodo_moveit_config</exec_depend>
   <export>
     <build_type>ament_cmake</build_type>
   </export>

@@ -1,0 +1,13 @@
+rmpflow_controller:
+  ros__parameters:
+    cspace_target_metric_scalar: 0.0
+    cspace_target_inertia: 0.0
+    joint_limit_metric_scalar: 0.0
+    joint_velocity_cap_metric_weight: 0.0
+    target_rmp_min_metric_scalar: 0.0
+    target_rmp_max_metric_scalar: 0.0
+    target_rmp_min_metric_alpha: 0.0
+    collision_rmp_metric_scalar: 0.0
+    orientation_rmp_metric_scalar: 0.0
+    damping_rmp_metric_scalar: 0.0
+    damping_rmp_inertia: 0.0

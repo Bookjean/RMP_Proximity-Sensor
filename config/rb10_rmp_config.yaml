@@ -2,10 +2,10 @@
 
 robot_name: 'rb10'
 
-eef_link: 'tcp'
+eef_link: 'tcp_rmp'
 
 default_q: [
-    0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    1.607134082, 0.032131512, -1.702551232, 0.2907544, -1.517249625, -0.823132182
 ]
 
 
@@ -13,13 +13,13 @@ joint_limit_buffers: [.01, .01, .01, .01, .01, .01]
 
 rmp_params:
     cspace_target_rmp:
-        metric_scalar: 0.005
-        position_gain: 100.
-        damping_gain: 50.
+        metric_scalar: 0.01
+        position_gain: 25.
+        damping_gain: 18.
         robust_position_term_thresh: .5
         inertia: 0.0001
     joint_limit_rmp:
-        metric_scalar: 0.1
+        metric_scalar: 0.0
         metric_length_scale: .01
         metric_exploder_eps: .001
         metric_velocity_gate_length_scale: .01
@@ -28,38 +28,50 @@ rmp_params:
         accel_potential_exploder_length_scale: .1
         accel_potential_exploder_eps: .01
     joint_velocity_cap_rmp:
-        max_velocity: 1.7
-        velocity_damping_region: 0.15
-        damping_gain: 5.0
-        metric_weight: 0.05
+        max_velocity: 0.35
+        velocity_damping_region: 0.05
+        damping_gain: 18.0
+        metric_weight: 0.0
     target_rmp:
         accel_p_gain: 50.
-        accel_d_gain: 70.
+        accel_d_gain: 30.
         accel_norm_eps: .075
-        metric_alpha_length_scale: .05
-        min_metric_alpha: .03
-        max_metric_scalar: 1.0
-        min_metric_scalar: 0.5
-        proximity_metric_boost_scalar: 3.
-        proximity_metric_boost_length_scale: .02
+        metric_alpha_length_scale: 100000.
+        min_metric_alpha: 0.0
+        max_metric_scalar: 100.0
+        min_metric_scalar: 50.0
+        proximity_metric_boost_scalar: 1.0
+        proximity_metric_boost_length_scale: 1.0
+    orientation_rmp:
+        accel_p_gain: 6.0
+        accel_d_gain: 8.0
+        metric_scalar: 30.0
     collision_rmp:
         margin: 0.
-        damping_gain: 50.
-        damping_std_dev: .04
+        damping_gain: 10.
+        damping_std_dev: .12
         damping_robustness_eps: .01
         damping_velocity_gate_length_scale: .01
-        repulsion_gain: 800.
-        repulsion_std_dev: .01
-        metric_modulation_radius: .5
-        metric_scalar: 1.
+        repulsion_gain: 30.
+        repulsion_std_dev: .08
+        metric_modulation_radius: .22
+        metric_scalar: 50.0
         metric_exploder_std_dev: .02
         metric_exploder_eps: .001
     damping_rmp:
-        accel_d_gain: 30.
-        metric_scalar: 0.005
-        inertia: 0.3
+        accel_d_gain: 80.
+        metric_scalar: 0.0
+        inertia: 0.0
 
-body_obstacles: []
+body_obstacles:
+    - type: ball
+      link_name: tcp_rmp
+      center: [0.0, 0.04, 0.0]
+      radius: .02
+    - type: ball
+      link_name: tcp_rmp
+      center: [0.0, -0.04, 0.0]
+      radius: .02
 
 arm_collision_controllers:
     # link1 to link3 (shoulder to elbow region)

@@ -7,6 +7,7 @@
 
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 #include "interactive_markers/interactive_marker_server.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/color_rgba.hpp"
@@ -30,6 +31,11 @@ public:
     declare_parameter("initial_y", -0.4);
     declare_parameter("initial_z", 0.6);
     declare_parameter("initial_q", std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+    declare_parameter("initialize_from_joint_state", true);
+    declare_parameter("lock_orientation_to_tcp", false);
+    declare_parameter("joint_state_topic", "joint_states");
+    declare_parameter("goal_command_point_topic", "goal_position_cmd");
+    declare_parameter("goal_command_pose_topic", "goal_pose_cmd");
 
     goal_pub_ = create_publisher<geometry_msgs::msg::Point>("goal_position", 10);
     goal_pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("goal_pose", 10);
@@ -58,7 +64,25 @@ public:
     goal_pose_.orientation.z = initial_orientation.z();
     goal_pose_.orientation.w = initial_orientation.w();
 
+    initialize_from_joint_state_ = get_parameter("initialize_from_joint_state").as_bool();
+    lock_orientation_to_tcp_ = get_parameter("lock_orientation_to_tcp").as_bool();
+    goal_initialized_ = !initialize_from_joint_state_;
+
     create_marker();
+    if (initialize_from_joint_state_) {
+      joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>(
+        get_parameter("joint_state_topic").as_string(),
+        10,
+        std::bind(&InteractiveGoalMarkerNode::on_joint_state, this, std::placeholders::_1));
+    }
+    goal_point_command_sub_ = create_subscription<geometry_msgs::msg::Point>(
+      get_parameter("goal_command_point_topic").as_string(),
+      10,
+      std::bind(&InteractiveGoalMarkerNode::on_goal_point_command, this, std::placeholders::_1));
+    goal_pose_command_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+      get_parameter("goal_command_pose_topic").as_string(),
+      10,
+      std::bind(&InteractiveGoalMarkerNode::on_goal_pose_command, this, std::placeholders::_1));
     timer_ = create_wall_timer(
       std::chrono::milliseconds(100),
       std::bind(&InteractiveGoalMarkerNode::publish_goal, this));
@@ -89,17 +113,23 @@ private:
     visible.markers.push_back(sphere);
     marker.controls.push_back(visible);
 
-    marker.controls.push_back(axis_control("rotate_x", 1.0, 0.0, 0.0,
-      visualization_msgs::msg::InteractiveMarkerControl::ROTATE_AXIS));
+    if (!lock_orientation_to_tcp_) {
+      marker.controls.push_back(axis_control("rotate_x", 1.0, 0.0, 0.0,
+        visualization_msgs::msg::InteractiveMarkerControl::ROTATE_AXIS));
+    }
     marker.controls.push_back(axis_control("move_x", 1.0, 0.0, 0.0,
       visualization_msgs::msg::InteractiveMarkerControl::MOVE_AXIS));
-    marker.controls.push_back(axis_control("rotate_y", 0.0, 0.0, 1.0,
-      visualization_msgs::msg::InteractiveMarkerControl::ROTATE_AXIS));
-    marker.controls.push_back(axis_control("move_y", 0.0, 0.0, 1.0,
+    if (!lock_orientation_to_tcp_) {
+      marker.controls.push_back(axis_control("rotate_y", 0.0, 1.0, 0.0,
+        visualization_msgs::msg::InteractiveMarkerControl::ROTATE_AXIS));
+    }
+    marker.controls.push_back(axis_control("move_y", 0.0, 1.0, 0.0,
       visualization_msgs::msg::InteractiveMarkerControl::MOVE_AXIS));
-    marker.controls.push_back(axis_control("rotate_z", 0.0, 1.0, 0.0,
-      visualization_msgs::msg::InteractiveMarkerControl::ROTATE_AXIS));
-    marker.controls.push_back(axis_control("move_z", 0.0, 1.0, 0.0,
+    if (!lock_orientation_to_tcp_) {
+      marker.controls.push_back(axis_control("rotate_z", 0.0, 0.0, 1.0,
+        visualization_msgs::msg::InteractiveMarkerControl::ROTATE_AXIS));
+    }
+    marker.controls.push_back(axis_control("move_z", 0.0, 0.0, 1.0,
       visualization_msgs::msg::InteractiveMarkerControl::MOVE_AXIS));
 
     visualization_msgs::msg::InteractiveMarkerControl move_3d;
@@ -135,6 +165,124 @@ private:
     const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr & feedback_msg)
   {
     goal_pose_ = feedback_msg->pose;
+    normalize_goal_orientation();
+    goal_initialized_ = true;
+    publish_goal();
+  }
+
+  void on_goal_point_command(const geometry_msgs::msg::Point::SharedPtr msg)
+  {
+    goal_pose_.position = *msg;
+    goal_initialized_ = true;
+    sync_marker_pose();
+    publish_goal();
+  }
+
+  void on_goal_pose_command(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+  {
+    goal_pose_.position = msg->pose.position;
+    if (!lock_orientation_to_tcp_) {
+      goal_pose_.orientation = msg->pose.orientation;
+      normalize_goal_orientation();
+    }
+    goal_initialized_ = true;
+    sync_marker_pose();
+    publish_goal();
+  }
+
+  void on_joint_state(const sensor_msgs::msg::JointState::SharedPtr msg)
+  {
+    if (goal_initialized_ && !lock_orientation_to_tcp_) {
+      return;
+    }
+
+    RB10Model::JointVector q = RB10Model::JointVector::Zero();
+    if (msg->position.size() < RB10Model::joint_names.size()) {
+      return;
+    }
+
+    if (msg->name.size() >= RB10Model::joint_names.size()) {
+      bool matched_all = true;
+      for (std::size_t joint = 0; joint < RB10Model::joint_names.size(); ++joint) {
+        bool matched = false;
+        for (std::size_t index = 0; index < msg->name.size(); ++index) {
+          if (msg->name[index] == RB10Model::joint_names[joint]) {
+            q[static_cast<int>(joint)] = msg->position[index];
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) {
+          matched_all = false;
+          break;
+        }
+      }
+      if (!matched_all) {
+        return;
+      }
+    } else {
+      for (std::size_t joint = 0; joint < RB10Model::joint_names.size(); ++joint) {
+        q[static_cast<int>(joint)] = msg->position[joint];
+      }
+    }
+
+    const auto context = RB10Model::forward_context(q);
+    Eigen::Quaterniond orientation(context.link_rotations[RB10Model::TCP_RMP]);
+    orientation.normalize();
+    const bool was_initialized = goal_initialized_;
+    bool pose_changed = false;
+
+    if (!was_initialized) {
+      const auto & tcp = context.link_positions[RB10Model::TCP_RMP];
+      goal_pose_.position.x = tcp.x();
+      goal_pose_.position.y = tcp.y();
+      goal_pose_.position.z = tcp.z();
+      goal_initialized_ = true;
+      pose_changed = true;
+    }
+
+    if (lock_orientation_to_tcp_) {
+      const Eigen::Quaterniond current_goal_orientation(
+        goal_pose_.orientation.w,
+        goal_pose_.orientation.x,
+        goal_pose_.orientation.y,
+        goal_pose_.orientation.z);
+      if (!current_goal_orientation.coeffs().allFinite() ||
+        current_goal_orientation.norm() < 1e-9 ||
+        std::abs(current_goal_orientation.normalized().dot(orientation)) < 1.0 - 1e-9)
+      {
+        goal_pose_.orientation.x = orientation.x();
+        goal_pose_.orientation.y = orientation.y();
+        goal_pose_.orientation.z = orientation.z();
+        goal_pose_.orientation.w = orientation.w();
+        pose_changed = true;
+      }
+    } else if (!was_initialized) {
+      goal_pose_.orientation.x = orientation.x();
+      goal_pose_.orientation.y = orientation.y();
+      goal_pose_.orientation.z = orientation.z();
+      goal_pose_.orientation.w = orientation.w();
+      pose_changed = true;
+    }
+
+    if (!pose_changed) {
+      return;
+    }
+
+    sync_marker_pose();
+    publish_goal();
+    if (!startup_log_emitted_) {
+      startup_log_emitted_ = true;
+      RCLCPP_INFO(
+        get_logger(),
+        lock_orientation_to_tcp_ ?
+        "Initialized goal marker from tcp_rmp and locking goal orientation to the live tcp_rmp orientation" :
+        "Initialized startup goal marker from the current tcp_rmp pose to avoid an initial jump");
+    }
+  }
+
+  void normalize_goal_orientation()
+  {
     const double norm =
       std::sqrt(
       goal_pose_.orientation.x * goal_pose_.orientation.x +
@@ -154,8 +302,18 @@ private:
     }
   }
 
+  void sync_marker_pose()
+  {
+    server_->setPose("goal_position", goal_pose_);
+    server_->applyChanges();
+  }
+
   void publish_goal()
   {
+    if (!goal_initialized_) {
+      return;
+    }
+
     geometry_msgs::msg::Point msg;
     msg = goal_pose_.position;
     goal_pub_->publish(msg);
@@ -168,8 +326,15 @@ private:
   }
 
   geometry_msgs::msg::Pose goal_pose_;
+  bool initialize_from_joint_state_{true};
+  bool goal_initialized_{false};
+  bool lock_orientation_to_tcp_{false};
+  bool startup_log_emitted_{false};
   rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr goal_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pose_pub_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr goal_point_command_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pose_command_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
   std::shared_ptr<interactive_markers::InteractiveMarkerServer> server_;
 };

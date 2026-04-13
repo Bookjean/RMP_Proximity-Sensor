@@ -1,13 +1,22 @@
 Panels:
   - Class: rviz_common/Displays
+    Help Height: 70
     Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+      Splitter Ratio: 0.5
+    Tree Height: 216
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
+    Expanded: ~
     Name: Tool Properties
+    Splitter Ratio: 0.5
   - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
     Name: Views
-
+    Splitter Ratio: 0.5
 Visualization Manager:
   Class: ""
   Displays:
@@ -16,6 +25,9 @@ Visualization Manager:
       Class: rviz_default_plugins/Grid
       Color: 160; 160; 164
       Enabled: true
+      Line Style:
+        Line Width: 0.029999999329447746
+        Value: Lines
       Name: Grid
       Normal Cell Count: 0
       Offset:
@@ -25,7 +37,7 @@ Visualization Manager:
       Plane: XY
       Plane Cell Count: 10
       Reference Frame: <Fixed Frame>
-
+      Value: true
     - Alpha: 1
       Class: rviz_default_plugins/RobotModel
       Collision Enabled: false
@@ -40,14 +52,106 @@ Visualization Manager:
       Enabled: true
       Links:
         All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link0:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link3_5:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        link4:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link5:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        link6:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        sensor_link2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        sensor_link3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        tcp:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        tcp_gripper:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tcp_rmp:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        tof_E:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof_N:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof_S:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof_W:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
       Mass Properties:
         Inertia: false
         Mass: false
       Name: RobotModel
       TF Prefix: ""
       Update Interval: 0
+      Value: true
       Visual Enabled: true
-
     - Class: rviz_default_plugins/Marker
       Enabled: true
       Name: GoalMarker
@@ -56,10 +160,11 @@ Visualization Manager:
       Topic:
         Depth: 5
         Durability Policy: Volatile
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /goal_marker
-
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: ControlPoints
@@ -71,19 +176,19 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /control_points
-
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Obstacles
       Namespaces:
-        obstacles: true
+        proximity_obstacles: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /obstacles
-
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: BodyObstacles
@@ -95,19 +200,19 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /body_obstacle_markers
-
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
+      Enabled: false
       Name: TofRays
       Namespaces:
-        tof_rays: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /tof_ray_markers
-
+      Value: false
     - Class: rviz_default_plugins/InteractiveMarkers
       Enable Transparency: true
       Enabled: true
@@ -116,7 +221,7 @@ Visualization Manager:
       Show Axes: false
       Show Descriptions: true
       Show Visual Aids: false
-
+      Value: true
     - Class: rviz_default_plugins/InteractiveMarkers
       Enable Transparency: true
       Enabled: true
@@ -125,13 +230,43 @@ Visualization Manager:
       Show Axes: false
       Show Descriptions: false
       Show Visual Aids: false
-
+      Value: true
     - Class: rviz_default_plugins/TF
       Enabled: true
       Frame Timeout: 15
       Frames:
         All Enabled: false
         base_link:
+          Value: true
+        gripper:
+          Value: true
+        link0:
+          Value: true
+        link1:
+          Value: true
+        link2:
+          Value: true
+        link3:
+          Value: true
+        link3_5:
+          Value: true
+        link4:
+          Value: true
+        link5:
+          Value: true
+        link6:
+          Value: true
+        sensor_link2:
+          Value: true
+        sensor_link3:
+          Value: true
+        tcp:
+          Value: true
+        tcp_gripper:
+          Value: true
+        tcp_rmp:
+          Value: true
+        rmp_goal_target:
           Value: true
         tof_E:
           Value: true
@@ -141,21 +276,49 @@ Visualization Manager:
           Value: true
         tof_W:
           Value: true
-        tcp:
-          Value: true
-      Marker Scale: 0.3
+      Marker Scale: 0.30000001192092896
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: true
+      Tree:
+        base_link:
+          rmp_goal_target:
+            {}
+          link0:
+            link1:
+              link2:
+                link3:
+                  link3_5:
+                    link4:
+                      link5:
+                        link6:
+                          tcp:
+                            gripper:
+                              {}
+                            tcp_gripper:
+                              {}
+                            tcp_rmp:
+                              {}
+                    sensor_link3:
+                      {}
+                    tof_E:
+                      {}
+                    tof_N:
+                      {}
+                    tof_S:
+                      {}
+                    tof_W:
+                      {}
+                sensor_link2:
+                  {}
       Update Interval: 0
-
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
     Fixed Frame: base_link
     Frame Rate: 30
-
   Name: root
   Tools:
     - Class: rviz_default_plugins/Interact
@@ -165,48 +328,46 @@ Visualization Manager:
     - Class: rviz_default_plugins/FocusCamera
     - Class: rviz_default_plugins/Measure
       Line color: 128; 128; 0
-
   Transformation:
     Current:
       Class: rviz_default_plugins/TF
-
   Value: true
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 2.5
+      Distance: 1.0825624465942383
       Enable Stereo Rendering:
-        Stereo Eye Separation: 0.06
+        Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.3
-        Y: 0
-        Z: 0.5
+        X: 0.11120525747537613
+        Y: -0.797225832939148
+        Z: 0.5973234176635742
       Focal Shape Fixed Size: true
-      Focal Shape Size: 0.05
+      Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
-      Near Clip Distance: 0.01
-      Pitch: 0.4
+      Near Clip Distance: 0.009999999776482582
+      Pitch: 0.17741942405700684
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 0.8
+      Yaw: 4.731195449829102
     Saved: ~
-
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 1000
+  Height: 1016
   Hide Left Dock: false
   Hide Right Dock: false
+  QMainWindow State: 000000ff00000000fd0000000100000000000001cb0000039efc0200000004fb000000100044006900730070006c006100790073010000003d0000015b000000c900fffffffb0000001200530065006c0065006300740069006f006e010000019e000000a80000005c00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073010000024c000000a80000005c00fffffffb0000000a0056006900650077007301000002fa000000e1000000a400ffffff000005690000039e00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Tool Properties:
     collapsed: false
   Views:
     collapsed: false
-  Width: 1400
-  X: 100
-  Y: 100
+  Width: 1850
+  X: 70
+  Y: 27

@@ -259,9 +259,16 @@ RmpSolveResult PinocchioDirectRmpSolver::solve(
     cache[node.name] = geometry;
 
     accumulate_leaf_type(
-      node.leaf_rmp_type, node, geometry, qd, vector_targets, external_rmps, metric, force);
+      node.leaf_rmp_type, node, geometry, qd, cache, vector_targets, external_rmps, metric, force);
     accumulate_leaf_type(
-      node.handcrafted_leaf_rmp_type, node, geometry, qd, vector_targets, external_rmps, metric,
+      node.handcrafted_leaf_rmp_type,
+      node,
+      geometry,
+      qd,
+      cache,
+      vector_targets,
+      external_rmps,
+      metric,
       force);
   }
 
@@ -602,12 +609,29 @@ PinocchioDirectRmpSolver::NodeGeometry PinocchioDirectRmpSolver::evaluate_native
       return out;
     }
 
-    out.x.resize(num_control_points * total_obstacles);
-    out.jacobian.resize(num_control_points * total_obstacles, 6);
-    out.velocity.resize(num_control_points * total_obstacles);
-    out.curvature.resize(num_control_points * total_obstacles);
+    std::vector<double> xs;
+    std::vector<double> velocities;
+    std::vector<double> curvatures;
+    std::vector<Eigen::RowVectorXd> jacobians;
+    xs.reserve(static_cast<std::size_t>(
+      num_control_points * (static_cast<int>(obstacles.size()) + (config_.body_obstacles.empty() ? 0 : 1))));
+    velocities.reserve(xs.capacity());
+    curvatures.reserve(xs.capacity());
+    jacobians.reserve(xs.capacity());
 
-    int row = 0;
+    const auto append_term =
+      [&xs, &velocities, &curvatures, &jacobians](
+        double x,
+        const Eigen::RowVectorXd & jacobian,
+        double velocity,
+        double curvature)
+      {
+        xs.push_back(x);
+        jacobians.push_back(jacobian);
+        velocities.push_back(velocity);
+        curvatures.push_back(curvature);
+      };
+
     for (int point_index = 0; point_index < num_control_points; ++point_index) {
       const double point_radius =
         RB10Model::sensor_control_points[static_cast<std::size_t>(point_index)].radius;
@@ -634,12 +658,20 @@ PinocchioDirectRmpSolver::NodeGeometry PinocchioDirectRmpSolver::evaluate_native
             (delta / center_distance).dot(point_curvature) +
             point_velocity.transpose() * projector * point_velocity;
         }
-        out.x[row] = x;
-        out.jacobian.row(row) = jacobian;
-        out.velocity[row] = signed_distance > 0.0 ? velocity : 0.0;
-        out.curvature[row] = curvature;
-        ++row;
+        append_term(
+          x,
+          jacobian,
+          signed_distance > 0.0 ? velocity : 0.0,
+          curvature);
       }
+
+      bool has_best_body_term = false;
+      double best_signed_distance = 0.0;
+      double best_x = 0.0;
+      Eigen::RowVectorXd best_jacobian = Eigen::RowVectorXd::Zero(6);
+      double best_velocity = 0.0;
+      double best_curvature = 0.0;
+
       for (const auto & obstacle : config_.body_obstacles) {
         if (!body_obstacle_interacts_with_sensor_control_point(point_index, obstacle)) {
           continue;
@@ -671,11 +703,14 @@ PinocchioDirectRmpSolver::NodeGeometry PinocchioDirectRmpSolver::evaluate_native
               (delta / center_distance).dot(point_curvature) +
               point_velocity.transpose() * projector * point_velocity;
           }
-          out.x[row] = x;
-          out.jacobian.row(row) = jacobian;
-          out.velocity[row] = signed_distance > 0.0 ? velocity : 0.0;
-          out.curvature[row] = curvature;
-          ++row;
+          if (!has_best_body_term || signed_distance < best_signed_distance) {
+            has_best_body_term = true;
+            best_signed_distance = signed_distance;
+            best_x = x;
+            best_jacobian = jacobian;
+            best_velocity = signed_distance > 0.0 ? velocity : 0.0;
+            best_curvature = curvature;
+          }
         } else if (obstacle.type == "box") {
           Eigen::Vector3d local_position = position;
           Eigen::Matrix3d obstacle_rotation = Eigen::Matrix3d::Identity();
@@ -721,15 +756,33 @@ PinocchioDirectRmpSolver::NodeGeometry PinocchioDirectRmpSolver::evaluate_native
           const Eigen::RowVectorXd jacobian = grad.transpose() * point_jacobian;
           const double velocity = grad.dot(point_velocity);
           const double curvature = grad.dot(point_curvature);
-          out.x[row] = x;
-          out.jacobian.row(row) = jacobian;
-          out.velocity[row] = signed_distance > 0.0 ? velocity : 0.0;
-          out.curvature[row] = signed_distance > 0.0 ? curvature : 0.0;
-          ++row;
+          if (!has_best_body_term || signed_distance < best_signed_distance) {
+            has_best_body_term = true;
+            best_signed_distance = signed_distance;
+            best_x = x;
+            best_jacobian = jacobian;
+            best_velocity = signed_distance > 0.0 ? velocity : 0.0;
+            best_curvature = signed_distance > 0.0 ? curvature : 0.0;
+          }
         } else {
           throw std::runtime_error("Unsupported body obstacle type: " + obstacle.type);
         }
       }
+
+      if (has_best_body_term) {
+        append_term(best_x, best_jacobian, best_velocity, best_curvature);
+      }
+    }
+
+    out.x.resize(static_cast<Eigen::Index>(xs.size()));
+    out.jacobian.resize(static_cast<Eigen::Index>(xs.size()), 6);
+    out.velocity.resize(static_cast<Eigen::Index>(xs.size()));
+    out.curvature.resize(static_cast<Eigen::Index>(xs.size()));
+    for (std::size_t index = 0; index < xs.size(); ++index) {
+      out.x[static_cast<Eigen::Index>(index)] = xs[index];
+      out.jacobian.row(static_cast<Eigen::Index>(index)) = jacobians[index];
+      out.velocity[static_cast<Eigen::Index>(index)] = velocities[index];
+      out.curvature[static_cast<Eigen::Index>(index)] = curvatures[index];
     }
     return out;
   }
@@ -860,6 +913,7 @@ void PinocchioDirectRmpSolver::accumulate_leaf_type(
   const RmpNodeConfig & node,
   const NodeGeometry & geometry,
   const JointVector & qd,
+  const std::unordered_map<std::string, NodeGeometry> & cache,
   const std::unordered_map<std::string, Eigen::Vector3d> & vector_targets,
   const std::unordered_map<std::string, ExternalRmpFeature> & external_rmps,
   Matrix6 & metric,
@@ -892,6 +946,37 @@ void PinocchioDirectRmpSolver::accumulate_leaf_type(
     const auto target_it = vector_targets.find(node.target_key);
     if (target_it != vector_targets.end()) {
       accumulate_orientation_target(geometry, qd, target_it->second, metric, force);
+    }
+    return;
+  }
+  if (leaf_type == "axis_target") {
+    const auto target_it = vector_targets.find(node.target_key);
+    if (target_it != vector_targets.end()) {
+      Eigen::Vector3d current_position_value = Eigen::Vector3d::Zero();
+      const Eigen::Vector3d * current_position = nullptr;
+      const Eigen::Vector3d * position_goal = nullptr;
+      if (node_enabled("target")) {
+        const auto position_goal_it = vector_targets.find("goal");
+        if (position_goal_it != vector_targets.end()) {
+          position_goal = &position_goal_it->second;
+        }
+        const auto tcp_position_it = cache.find("tcp_position");
+        if (
+          tcp_position_it != cache.end() &&
+          tcp_position_it->second.x.size() == 3)
+        {
+          current_position_value = tcp_position_it->second.x.head<3>();
+          current_position = &current_position_value;
+        }
+      }
+      accumulate_axis_target(
+        geometry,
+        qd,
+        target_it->second,
+        current_position,
+        position_goal,
+        metric,
+        force);
     }
     return;
   }
@@ -1093,6 +1178,53 @@ void PinocchioDirectRmpSolver::accumulate_orientation_target(
     config_.orientation.accel_d_gain * xd;
   const Eigen::Matrix3d leaf_metric =
     config_.orientation.metric_scalar * Eigen::Matrix3d::Identity();
+
+  accumulate_vector_leaf(
+    use_natural_rmp,
+    geometry.jacobian,
+    leaf_metric,
+    acceleration,
+    geometry.curvature,
+    metric,
+    force);
+}
+
+void PinocchioDirectRmpSolver::accumulate_axis_target(
+  const NodeGeometry & geometry,
+  const JointVector & qd,
+  const Eigen::Vector3d & goal,
+  const Eigen::Vector3d * current_position,
+  const Eigen::Vector3d * position_goal,
+  Matrix6 & metric,
+  JointVector & force) const
+{
+  const bool use_natural_rmp = uses_rmp2_solve() && uses_natural_rmp();
+  if (geometry.x.size() != 3) {
+    throw std::runtime_error("axis_target leaf expects 3D task map output");
+  }
+
+  const auto velocity = velocity_of(geometry, qd);
+  const Eigen::Vector3d x = geometry.x.normalized();
+  const Eigen::Vector3d xd = velocity;
+  const Eigen::Vector3d goal_unit = goal.normalized();
+  const Eigen::Vector3d delta = goal_unit - x;
+  const Eigen::Vector3d acceleration =
+    config_.axis_target.accel_p_gain * delta -
+    config_.axis_target.accel_d_gain * xd;
+
+  Eigen::Matrix3d leaf_metric =
+    config_.axis_target.metric_scalar * Eigen::Matrix3d::Identity();
+  if (current_position != nullptr && position_goal != nullptr) {
+    const double delta_norm = (*position_goal - *current_position).norm();
+    const double boost_length_scale =
+      std::max(config_.axis_target.proximity_metric_boost_length_scale, 1e-9);
+    const double boost_scaled_dist =
+      delta_norm / boost_length_scale;
+    const double boost_alpha = std::exp(-0.5 * boost_scaled_dist * boost_scaled_dist);
+    const double metric_boost_scalar =
+      boost_alpha * config_.axis_target.proximity_metric_boost_scalar + (1.0 - boost_alpha);
+    leaf_metric *= metric_boost_scalar;
+  }
 
   accumulate_vector_leaf(
     use_natural_rmp,

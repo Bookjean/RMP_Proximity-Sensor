@@ -12,9 +12,11 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(Boost REQUIRED COMPONENTS filesystem serialization)
 find_package(Eigen3 REQUIRED)
+find_package(Threads REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(interactive_markers REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(realtime_tools REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -95,7 +97,11 @@ target_link_libraries(
   rb10_pinocchio_rmp
 )
 
-add_executable(rmpflow_controller src/rmpflow_controller_node.cpp)
+add_executable(
+  rmpflow_controller
+  src/rmpflow_controller_node.cpp
+  src/rb10_socket_client.cpp
+)
 target_include_directories(rmpflow_controller PRIVATE include)
 set_target_properties(
   rmpflow_controller PROPERTIES
@@ -106,6 +112,7 @@ target_link_libraries(
   rmpflow_controller
   Eigen3::Eigen
   rb10_pinocchio_rmp
+  Threads::Threads
   ${CASADI_LIBRARY}
 )
 ament_target_dependencies(
@@ -113,8 +120,10 @@ ament_target_dependencies(
   ament_index_cpp
   geometry_msgs
   rclcpp
+  realtime_tools
   sensor_msgs
   std_msgs
+  tf2_ros
   visualization_msgs
 )
 
@@ -186,6 +195,39 @@ ament_target_dependencies(
   visualization_msgs
 )
 
+add_executable(rmpflow_bridge src/rmpflow_bridge.cpp)
+target_include_directories(rmpflow_bridge PRIVATE include)
+target_link_libraries(rmpflow_bridge Eigen3::Eigen)
+ament_target_dependencies(
+  rmpflow_bridge
+  geometry_msgs
+  rclcpp
+  sensor_msgs
+  std_msgs
+)
+
+add_executable(joint_state_adapter src/joint_state_adapter.cpp)
+target_include_directories(joint_state_adapter PRIVATE include)
+ament_target_dependencies(
+  joint_state_adapter
+  rclcpp
+  sensor_msgs
+)
+
+add_executable(
+  rb10_direct_bridge
+  src/rb10_direct_bridge_node.cpp
+  src/rb10_socket_client.cpp
+)
+target_include_directories(rb10_direct_bridge PRIVATE include)
+target_link_libraries(rb10_direct_bridge Threads::Threads)
+ament_target_dependencies(
+  rb10_direct_bridge
+  rclcpp
+  sensor_msgs
+  std_msgs
+)
+
 install(
   TARGETS
     rb10_pinocchio_rmp
@@ -196,6 +238,9 @@ install(
     obstacle_manager
     tof_ray_visualizer
     proximity_obstacle_bridge
+    rmpflow_bridge
+    joint_state_adapter
+    rb10_direct_bridge
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -218,9 +263,27 @@ install(
 )
 
 install(
-  PROGRAMS
-    scripts/rmp_debug.py
+  DIRECTORY
+    scripts/api
+    scripts/multipledispatch
   DESTINATION lib/${PROJECT_NAME}
 )
+
+install(
+  PROGRAMS
+    scripts/rb10_api_bridge.py
+    scripts/rb10_api_standalone_test.py
+    scripts/rmp_data_recorder.py
+    scripts/rmp_debug.py
+    scripts/goal_cli.py
+    scripts/run_tuning_scenario.py
+    scripts/analyze_rmp_dataset.py
+    scripts/create_tuning_experiment.py
+    scripts/move_to_saved_start_pose.py
+    scripts/joint_velocity_logger.py
+    scripts/plot_joint_velocity_log.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 
 ament_package()

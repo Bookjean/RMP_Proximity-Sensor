@@ -32,6 +32,7 @@ public:
   {
     declare_parameter("num_obstacles", 1);
     declare_parameter("default_radius", 0.1);
+    declare_parameter("default_positions", std::vector<double>{});
 
     obstacle_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("obstacles", 10);
     add_obstacle_sub_ = create_subscription<visualization_msgs::msg::Marker>(
@@ -51,9 +52,25 @@ public:
       make_point(0.3, 0.3, 0.4),
       make_point(0.5, 0.0, 0.3),
     };
+    const auto configured_positions = get_parameter("default_positions").as_double_array();
     const auto radius = get_parameter("default_radius").as_double();
     const auto num_obstacles = get_parameter("num_obstacles").as_int();
-    for (int index = 0; index < std::min<int>(num_obstacles, defaults.size()); ++index) {
+    for (int index = 0; index < num_obstacles; ++index) {
+      const std::size_t base = static_cast<std::size_t>(index) * 3;
+      if (base + 2 < configured_positions.size()) {
+        add_obstacle(
+          index,
+          make_point(
+            configured_positions[base],
+            configured_positions[base + 1],
+            configured_positions[base + 2]),
+          radius);
+        continue;
+      }
+      if (static_cast<std::size_t>(index) >= defaults.size()) {
+        add_obstacle(index, make_point(0.0, 0.0, 0.0), radius);
+        continue;
+      }
       add_obstacle(index, defaults[static_cast<std::size_t>(index)], radius);
     }
 
@@ -145,12 +162,14 @@ private:
       return;
     }
     it->second.position = feedback_msg->pose.position;
+    publish_obstacles();
   }
 
   void on_add_obstacle(const visualization_msgs::msg::Marker::SharedPtr msg)
   {
     if (msg->action == visualization_msgs::msg::Marker::ADD) {
       add_obstacle(msg->id, msg->pose.position, msg->scale.x * 0.5);
+      publish_obstacles();
       return;
     }
 
@@ -158,6 +177,7 @@ private:
       obstacles_.erase(msg->id);
       server_->erase("obstacle_" + std::to_string(msg->id));
       server_->applyChanges();
+      publish_obstacles();
     }
   }
 

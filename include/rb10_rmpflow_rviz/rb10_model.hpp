@@ -36,14 +36,14 @@ struct ControlPoint
 
 struct KinematicsContext
 {
-  std::array<Eigen::Vector3d, 11> link_positions;
-  std::array<Eigen::Matrix3d, 11> link_rotations;
-  std::array<Eigen::Matrix<double, 3, 6>, 11> link_jacobians;
-  std::array<Eigen::Matrix<double, 3, 6>, 11> link_angular_jacobians;
-  std::array<Eigen::Vector3d, 11> link_velocities;
-  std::array<Eigen::Vector3d, 11> link_curvatures;
-  std::array<Eigen::Vector3d, 11> link_angular_velocities;
-  std::array<Eigen::Vector3d, 11> link_angular_curvatures;
+  std::array<Eigen::Vector3d, 12> link_positions;
+  std::array<Eigen::Matrix3d, 12> link_rotations;
+  std::array<Eigen::Matrix<double, 3, 6>, 12> link_jacobians;
+  std::array<Eigen::Matrix<double, 3, 6>, 12> link_angular_jacobians;
+  std::array<Eigen::Vector3d, 12> link_velocities;
+  std::array<Eigen::Vector3d, 12> link_curvatures;
+  std::array<Eigen::Vector3d, 12> link_angular_velocities;
+  std::array<Eigen::Vector3d, 12> link_angular_curvatures;
   std::array<Eigen::Vector3d, 6> joint_origins;
   std::array<Eigen::Vector3d, 6> joint_axes;
   Eigen::Vector3d tcp_position{Eigen::Vector3d::Zero()};
@@ -75,12 +75,13 @@ public:
     LINK6,
     TCP,
     TCP_RMP,
+    TCP_GRIPPER,
     LINK_COUNT
   };
 
   static constexpr std::array<const char *, LINK_COUNT> link_names{
     "base_link", "link0", "link1", "link2", "link3", "link3_5", "link4", "link5", "link6", "tcp",
-    "tcp_rmp"
+    "tcp_rmp", "tcp_gripper"
   };
 
   static constexpr std::array<const char *, 6> joint_names{
@@ -104,10 +105,10 @@ public:
   }};
 
   inline static const std::array<SensorControlPointSpec, 4> sensor_control_points{{
-    {"tof_N", Eigen::Vector3d(-0.06, 0.0, 0.285075), 0.08},
-    {"tof_S", Eigen::Vector3d(0.06, 0.0, 0.285075),  0.08},
-    {"tof_E", Eigen::Vector3d(0.0, 0.06, 0.285075),  0.08},
-    {"tof_W", Eigen::Vector3d(0.0, -0.06, 0.285075), 0.08},
+    {"tof_N", Eigen::Vector3d(-0.06, 0.0, 0.285075), 0.12},
+    {"tof_S", Eigen::Vector3d(0.06, 0.0, 0.285075),  0.12},
+    {"tof_E", Eigen::Vector3d(0.0, 0.06, 0.285075),  0.12},
+    {"tof_W", Eigen::Vector3d(0.0, -0.06, 0.285075), 0.12},
   }};
 
   static Eigen::Affine3d origin_transform(
@@ -222,7 +223,9 @@ public:
 
     const Eigen::Affine3d tcp_transform = transform * origin_transform(0.0, -0.1153, 0.0);
     const Eigen::Affine3d tcp_rmp_transform =
-      tcp_transform * origin_transform(0.0, 0.0, 0.0, 0.0, 1.5707963268, 1.5707963268);
+      tcp_transform * origin_transform(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    const Eigen::Affine3d tcp_gripper_transform =
+      tcp_transform * origin_transform(0.0, -0.285398, 0.0, 0.0, 1.5707963268, 1.5707963268);
     context.tcp_position = tcp_rmp_transform.translation();
     context.tcp_jacobian = point_jacobian(
       context.tcp_position, context.joint_origins, context.joint_axes, 6);
@@ -233,6 +236,10 @@ public:
     context.link_positions[TCP_RMP] = context.tcp_position;
     context.link_jacobians[TCP_RMP] = context.tcp_jacobian;
     context.link_rotations[TCP_RMP] = tcp_rmp_transform.linear();
+    context.link_positions[TCP_GRIPPER] = tcp_gripper_transform.translation();
+    context.link_jacobians[TCP_GRIPPER] = point_jacobian(
+      context.link_positions[TCP_GRIPPER], context.joint_origins, context.joint_axes, 6);
+    context.link_rotations[TCP_GRIPPER] = tcp_gripper_transform.linear();
 
     context.control_points.reserve(sensor_control_points.size());
     context.control_point_jacobians.reserve(sensor_control_points.size());

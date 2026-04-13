@@ -87,6 +87,15 @@ struct OrientationTargetParams
   double metric_scalar{0.08};
 };
 
+struct AxisTargetParams
+{
+  double accel_p_gain{1000.0};
+  double accel_d_gain{500.0};
+  double metric_scalar{50.0};
+  double proximity_metric_boost_scalar{10.0};
+  double proximity_metric_boost_length_scale{0.1};
+};
+
 struct CollisionRmpParams
 {
   double margin{0.0};
@@ -247,6 +256,7 @@ struct EigenRmpConfig
   JointVelocityCapParams joint_velocity_cap{};
   TargetRmpParams target{};
   OrientationTargetParams orientation{};
+  AxisTargetParams axis_target{};
   CollisionRmpParams collision{};
   DampingRmpParams damping{};
   std::vector<BodyObstacle> body_obstacles;

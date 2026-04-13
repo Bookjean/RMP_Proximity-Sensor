@@ -123,6 +123,15 @@ private:
     Matrix6 & metric,
     JointVector & force) const;
 
+  void accumulate_axis_target(
+    const NodeGeometry & geometry,
+    const JointVector & qd,
+    const Eigen::Vector3d & goal,
+    const Eigen::Vector3d * current_position,
+    const Eigen::Vector3d * position_goal,
+    Matrix6 & metric,
+    JointVector & force) const;
+
   void accumulate_collision(
     const NodeGeometry & geometry,
     const JointVector & qd,
@@ -145,6 +154,7 @@ private:
     const RmpNodeConfig & node,
     const NodeGeometry & geometry,
     const JointVector & qd,
+    const std::unordered_map<std::string, NodeGeometry> & cache,
     const std::unordered_map<std::string, Eigen::Vector3d> & vector_targets,
     const std::unordered_map<std::string, ExternalRmpFeature> & external_rmps,
     Matrix6 & metric,

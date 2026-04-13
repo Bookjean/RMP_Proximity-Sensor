@@ -22,9 +22,6 @@ rmpflow_controller:
     joint_state_topic: "joint_states"
     position_command_topic: "position_controllers/commands"
     publish_joint_states: true
-    publish_goal_tf: true
-    goal_tf_parent_frame: "base_link"
-    goal_tf_child_frame: "rmp_goal_target"
     enable_realtime: false
     realtime_priority: 80
     lock_memory: false
@@ -186,7 +183,7 @@ rmpflow_controller:
         parent: root
         task_map: link_orientation_axis
         leaf: axis_target
-        enabled: false
+        enabled: true
         target_key: orientation_goal_x
         link_name: tcp_rmp
         axis: "x"
@@ -197,7 +194,7 @@ rmpflow_controller:
         parent: root
         task_map: link_orientation_axis
         leaf: axis_target
-        enabled: false
+        enabled: true
         target_key: orientation_goal_y
         link_name: tcp_rmp
         axis: "y"
@@ -243,9 +240,9 @@ rmpflow_controller:
     target_rmp_min_metric_scalar: 100.0
     target_rmp_proximity_metric_boost_scalar: 1.0
     target_rmp_proximity_metric_boost_length_scale: 1.0
-    orientation_rmp_accel_p_gain: 40.0
-    orientation_rmp_accel_d_gain: 20.0
-    orientation_rmp_metric_scalar: 50.0
+    orientation_rmp_accel_p_gain: 6.0
+    orientation_rmp_accel_d_gain: 8.0
+    orientation_rmp_metric_scalar: 0.0
     axis_target_rmp_accel_p_gain: 150.0
     axis_target_rmp_accel_d_gain: 40.0
     axis_target_rmp_metric_scalar: 5.0

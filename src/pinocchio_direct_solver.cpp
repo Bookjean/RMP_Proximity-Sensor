@@ -147,13 +147,11 @@ int link_index_from_name(const std::string & link_name)
 }
 
 bool body_obstacle_interacts_with_sensor_control_point(
-  int /*point_index*/,
+  int,
   const BodyObstacle & obstacle)
 {
-  // The sensor control points are rigidly mounted to the link3 lower-arm assembly.
-  // Guards on that same rigid assembly are for visualization/coverage and should
-  // not generate self-repulsion.
-  return obstacle.link_name != "link3" && obstacle.link_name != "link3_5";
+  (void)obstacle;
+  return false;
 }
 
 PinocchioDirectRmpSolver::JointVector resolve_root_direct(

@@ -295,6 +295,7 @@ def generate_launch_description():
             "sensor_grid_resolution": 7,
             "edge_range_ratio": 0.6,
             "edge_falloff_power": 2.0,
+            "ignored_marker_namespaces": ["proximity_obstacles", "body_obstacles"],
         }],
     )
 
@@ -431,7 +432,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "use_obstacles",
-            default_value="false",
+            default_value="true",
             description="Enable the interactive obstacle manager.",
         ),
         DeclareLaunchArgument(
@@ -529,7 +530,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "servo_alpha",
-            default_value="0.2",
+            default_value="0.4",
             description="ServoJ low-pass filter gain for the internal RB10 bridge.",
         ),
         DeclareLaunchArgument(
@@ -619,7 +620,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "measured_position_feedback_blend",
-            default_value="0.9",
+            default_value="1.0",
             description=(
                 "Blend factor for solver joint position feedback. "
                 "1.0 uses only measured/reference joint position, 0.0 uses only the previous "
@@ -628,7 +629,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "measured_velocity_feedback_blend",
-            default_value="0.04",
+            default_value="0.35",
             description=(
                 "Blend factor for solver joint velocity feedback. "
                 "1.0 uses only measured velocity, 0.0 uses only previous command velocity."
@@ -675,7 +676,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "estimate_velocity_in_controller",
-            default_value="true",
+            default_value="false",
             description=(
                 "Estimate joint velocity inside the 100 Hz controller loop from joint position "
                 "instead of consuming the bridge-published /joint_states velocity directly."
@@ -683,7 +684,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "controller_velocity_filter_alpha",
-            default_value="0.10",
+            default_value="0.25",
             description=(
                 "Low-pass blend used by the controller-side joint velocity estimator. "
                 "1.0 keeps the raw 100 Hz finite-difference velocity, smaller values smooth it."

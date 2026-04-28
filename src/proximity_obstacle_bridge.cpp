@@ -37,9 +37,11 @@ public:
     declare_parameter("obstacle_topic", "obstacles");
     declare_parameter("publish_rate", 30.0);
     declare_parameter("obstacle_radius", 0.05);
+    declare_parameter("obstacle_radii", std::vector<double>{});
     declare_parameter("valid_margin", 1e-3);
     declare_parameter("range_scale", 0.001);
     declare_parameter("trigger_distance", 0.15);
+    declare_parameter("trigger_distances", std::vector<double>{});
     declare_parameter("rmp_flag_gate_enabled", false);
     declare_parameter("rmp_flag_topic", "/RMP_flag");
     declare_parameter("rmp_active_flag_value", 1);
@@ -64,12 +66,28 @@ public:
     rmp_active_ = !rmp_flag_gate_enabled_;
     range_topics_ = get_parameter("range_topics").as_string_array();
     sensor_frames_ = get_parameter("sensor_frames").as_string_array();
+    const auto obstacle_radii = get_parameter("obstacle_radii").as_double_array();
+    const auto trigger_distances = get_parameter("trigger_distances").as_double_array();
 
     if (range_topics_.size() != sensor_frames_.size()) {
       throw std::runtime_error("range_topics and sensor_frames must have the same size");
     }
+    if (!obstacle_radii.empty() && obstacle_radii.size() != sensor_frames_.size()) {
+      throw std::runtime_error("obstacle_radii must be empty or match sensor_frames size");
+    }
+    if (!trigger_distances.empty() && trigger_distances.size() != sensor_frames_.size()) {
+      throw std::runtime_error("trigger_distances must be empty or match sensor_frames size");
+    }
 
     latest_ranges_.resize(range_topics_.size());
+    obstacle_radii_.assign(sensor_frames_.size(), obstacle_radius_);
+    trigger_distances_.assign(sensor_frames_.size(), trigger_distance_);
+    for (std::size_t index = 0; index < obstacle_radii.size(); ++index) {
+      obstacle_radii_[index] = obstacle_radii[index];
+    }
+    for (std::size_t index = 0; index < trigger_distances.size(); ++index) {
+      trigger_distances_[index] = trigger_distances[index];
+    }
 
     tf_buffer_.setCreateTimerInterface(
       std::make_shared<tf2_ros::CreateTimerROS>(
@@ -135,23 +153,24 @@ private:
       }
 
       const double range_m = range_msg->range * range_scale_;
-      if (range_m > trigger_distance_) {
+      if (range_m > trigger_distances_[index]) {
         marker.action = visualization_msgs::msg::Marker::DELETE;
         msg.markers.push_back(marker);
         continue;
       }
+      const double obstacle_radius = obstacle_radii_[index];
       const Eigen::Vector3d direction = sensor_transform->second * Eigen::Vector3d::UnitX();
       const Eigen::Vector3d center =
-        sensor_transform->first + direction * (range_m + obstacle_radius_);
+        sensor_transform->first + direction * (range_m + obstacle_radius);
 
       marker.action = visualization_msgs::msg::Marker::ADD;
       marker.pose.position.x = center.x();
       marker.pose.position.y = center.y();
       marker.pose.position.z = center.z();
       marker.pose.orientation.w = 1.0;
-      marker.scale.x = obstacle_radius_ * 2.0;
-      marker.scale.y = obstacle_radius_ * 2.0;
-      marker.scale.z = obstacle_radius_ * 2.0;
+      marker.scale.x = obstacle_radius * 2.0;
+      marker.scale.y = obstacle_radius * 2.0;
+      marker.scale.z = obstacle_radius * 2.0;
       marker.color.r = 1.0F;
       marker.color.g = 0.8F;
       marker.color.b = 0.1F;
@@ -239,6 +258,8 @@ private:
   int rmp_active_flag_value_{1};
   std::vector<std::string> range_topics_;
   std::vector<std::string> sensor_frames_;
+  std::vector<double> obstacle_radii_;
+  std::vector<double> trigger_distances_;
   std::vector<std::optional<sensor_msgs::msg::Range>> latest_ranges_;
 
   tf2_ros::Buffer tf_buffer_;

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cmath>
 #include <functional>
+#include <stdexcept>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -24,6 +25,7 @@ struct ControlPointSpec
 struct SensorControlPointSpec
 {
   const char * frame_name;
+  std::size_t parent_link;
   Eigen::Vector3d offset;
   double radius;
 };
@@ -104,11 +106,15 @@ public:
     {LINK6, TCP, 5, 0.05},
   }};
 
-  inline static const std::array<SensorControlPointSpec, 4> sensor_control_points{{
-    {"tof_N", Eigen::Vector3d(-0.06, 0.0, 0.285075), 0.12},
-    {"tof_S", Eigen::Vector3d(0.06, 0.0, 0.285075),  0.12},
-    {"tof_E", Eigen::Vector3d(0.0, 0.06, 0.285075),  0.12},
-    {"tof_W", Eigen::Vector3d(0.0, -0.06, 0.285075), 0.12},
+  inline static const std::array<SensorControlPointSpec, 8> sensor_control_points{{
+    {"tof_N", LINK3_5, Eigen::Vector3d(-0.0645, 0.0, 0.285075), 0.15},
+    {"tof_S", LINK3_5, Eigen::Vector3d(0.0645, 0.0, 0.285075),  0.15},
+    {"tof_E", LINK3_5, Eigen::Vector3d(0.0, 0.0645, 0.285075),  0.15},
+    {"tof_W", LINK3_5, Eigen::Vector3d(0.0, -0.0645, 0.285075), 0.15},
+    {"tof6_1_F", LINK6, Eigen::Vector3d(0.0, 0.0, 0.06), 0.15},
+    {"tof6_1_L", LINK6, Eigen::Vector3d(-0.06, 0.0, 0.0),  0.15},
+    {"tof6_1_R", LINK6, Eigen::Vector3d(0.06, 0.0, 0.0), 0.15},
+    {"tof6_1_U", LINK6, Eigen::Vector3d(0.0, 0.0667, 0.0), 0.15},
   }};
 
   static Eigen::Affine3d origin_transform(
@@ -137,18 +143,42 @@ public:
     return jacobian;
   }
 
-  static Eigen::Vector3d sensor_position_from_q(
+  static Eigen::Affine3d link_frame_from_q(
     const JointVector & q,
-    const Eigen::Vector3d & offset)
+    std::size_t parent_link)
   {
     Eigen::Affine3d transform = Eigen::Affine3d::Identity();
     transform = transform * Eigen::AngleAxisd(q[0], Eigen::Vector3d::UnitZ());
     transform = transform * origin_transform(0.0, 0.0, 0.197);
+    if (parent_link == LINK2) {
+      return transform * Eigen::AngleAxisd(q[1], Eigen::Vector3d::UnitY());
+    }
+
     transform = transform * Eigen::AngleAxisd(q[1], Eigen::Vector3d::UnitY());
     transform = transform * origin_transform(0.0, -0.1875, 0.6127);
     transform = transform * Eigen::AngleAxisd(q[2], Eigen::Vector3d::UnitY());
-    transform = transform * origin_transform(0.0, 0.1484, 0.0);
-    return transform * offset;
+    const Eigen::Affine3d link3_5_transform = transform * origin_transform(0.0, 0.1484, 0.0);
+    if (parent_link == LINK3_5) {
+      return link3_5_transform;
+    }
+
+    transform = link3_5_transform * origin_transform(0.0, 0.0, 0.57015);
+    transform = transform * Eigen::AngleAxisd(q[3], Eigen::Vector3d::UnitY());
+    transform = transform * origin_transform(0.0, -0.11715, 0.0);
+    transform = transform * Eigen::AngleAxisd(q[4], Eigen::Vector3d::UnitZ());
+    transform = transform * origin_transform(0.0, 0.0, 0.11715);
+    if (parent_link == LINK6) {
+      return transform * Eigen::AngleAxisd(q[5], Eigen::Vector3d::UnitY());
+    }
+
+    throw std::runtime_error("Unsupported sensor parent link index");
+  }
+
+  static Eigen::Vector3d sensor_position_from_q(
+    const JointVector & q,
+    const SensorControlPointSpec & sensor)
+  {
+    return link_frame_from_q(q, sensor.parent_link) * sensor.offset;
   }
 
   static KinematicsContext forward_context(const JointVector & q)
@@ -244,11 +274,13 @@ public:
     context.control_points.reserve(sensor_control_points.size());
     context.control_point_jacobians.reserve(sensor_control_points.size());
     for (const auto & sensor : sensor_control_points) {
-      const Eigen::Vector3d position = sensor_position_from_q(q, sensor.offset);
+      const Eigen::Vector3d position =
+        context.link_positions[sensor.parent_link] +
+        context.link_rotations[sensor.parent_link] * sensor.offset;
       context.control_points.push_back(ControlPoint{position, sensor.radius});
       context.control_point_jacobians.push_back(
         numerical_jacobian(q, [&sensor](const JointVector & sample_q) {
-          return sensor_position_from_q(sample_q, sensor.offset);
+          return sensor_position_from_q(sample_q, sensor);
         }));
     }
 

@@ -1875,7 +1875,8 @@ private:
     std::size_t /*point_index*/,
     const BodyObstacle & obstacle) const
   {
-    return obstacle.link_name != "link3" && obstacle.link_name != "link3_5";
+    (void)obstacle;
+    return false;
   }
 
   struct FloorSafetyMetrics

@@ -5,6 +5,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,6 +14,7 @@
 
 #include "geometry_msgs/msg/point.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rb10_rmpflow_rviz/rb10_model.hpp"
 #include "sensor_msgs/msg/range.hpp"
 #include "std_msgs/msg/color_rgba.hpp"
 #include "tf2/exceptions.h"
@@ -27,6 +29,31 @@ namespace rb10_rmpflow_rviz
 
 namespace
 {
+
+std::vector<std::string> default_sensor_frames()
+{
+  std::vector<std::string> frames;
+  frames.reserve(RB10Model::sensor_control_points.size());
+  for (const auto & sensor : RB10Model::sensor_control_points) {
+    frames.emplace_back(sensor.frame_name);
+  }
+  return frames;
+}
+
+std::vector<std::string> default_range_topics()
+{
+  std::vector<std::string> topics;
+  topics.reserve(RB10Model::sensor_control_points.size());
+  for (std::size_t index = 0; index < RB10Model::sensor_control_points.size(); ++index) {
+    topics.emplace_back("prox_distance" + std::to_string(index + 1));
+  }
+  return topics;
+}
+
+std::vector<std::string> default_ignored_marker_namespaces()
+{
+  return {"proximity_obstacles", "body_obstacles"};
+}
 
 struct SphereObstacle
 {
@@ -55,6 +82,9 @@ public:
     declare_parameter("marker_alpha", 0.5);
     declare_parameter("marker_topic", "tof_ray_markers");
     declare_parameter("obstacle_topic", "obstacles");
+    declare_parameter("sensor_frames", default_sensor_frames());
+    declare_parameter("range_topics", default_range_topics());
+    declare_parameter("ignored_marker_namespaces", default_ignored_marker_namespaces());
 
     fixed_frame_ = get_parameter("fixed_frame").as_string();
     max_range_ = get_parameter("max_range").as_double();
@@ -66,6 +96,12 @@ public:
     edge_falloff_power_ = get_parameter("edge_falloff_power").as_double();
     marker_scale_ = get_parameter("marker_scale").as_double();
     marker_alpha_ = get_parameter("marker_alpha").as_double();
+    sensor_frames_ = get_parameter("sensor_frames").as_string_array();
+    range_topics_ = get_parameter("range_topics").as_string_array();
+    ignored_marker_namespaces_ = get_parameter("ignored_marker_namespaces").as_string_array();
+    if (sensor_frames_.size() != range_topics_.size()) {
+      throw std::runtime_error("sensor_frames and range_topics must have the same size");
+    }
 
     tf_buffer_.setCreateTimerInterface(
       std::make_shared<tf2_ros::CreateTimerROS>(
@@ -142,6 +178,13 @@ private:
       if (marker.type != visualization_msgs::msg::Marker::SPHERE) {
         continue;
       }
+      if (std::find(
+          ignored_marker_namespaces_.begin(),
+          ignored_marker_namespaces_.end(),
+          marker.ns) != ignored_marker_namespaces_.end())
+      {
+        continue;
+      }
 
       SphereObstacle obstacle;
       obstacle.center = Eigen::Vector3d(
@@ -159,8 +202,6 @@ private:
   {
     const auto stamp = now();
     visualization_msgs::msg::MarkerArray marker_array;
-
-    const auto colors = sensor_colors();
 
     for (std::size_t sensor_index = 0; sensor_index < sensor_frames_.size(); ++sensor_index) {
       const auto transform = lookup_sensor_transform(sensor_frames_[sensor_index]);
@@ -181,7 +222,7 @@ private:
       marker.action = visualization_msgs::msg::Marker::ADD;
       marker.scale.x = marker_scale_;
       marker.pose.orientation.w = 1.0;
-      marker.color = colors[sensor_index];
+      marker.color = sensor_color(sensor_index);
       marker.color.a = marker_alpha_;
 
       double representative_range = max_range_;
@@ -292,14 +333,30 @@ private:
     return msg;
   }
 
-  std::array<std_msgs::msg::ColorRGBA, 4> sensor_colors() const
+  std_msgs::msg::ColorRGBA sensor_color(std::size_t index) const
   {
-    std::array<std_msgs::msg::ColorRGBA, 4> colors;
-    colors[0].r = 0.0F; colors[0].g = 0.9F; colors[0].b = 0.9F; colors[0].a = 1.0F;
-    colors[1].r = 1.0F; colors[1].g = 0.6F; colors[1].b = 0.1F; colors[1].a = 1.0F;
-    colors[2].r = 0.4F; colors[2].g = 0.8F; colors[2].b = 0.2F; colors[2].a = 1.0F;
-    colors[3].r = 0.9F; colors[3].g = 0.2F; colors[3].b = 0.6F; colors[3].a = 1.0F;
-    return colors;
+    static const std::array<std::array<float, 3>, 12> palette{{
+      {{0.0F, 0.9F, 0.9F}},
+      {{1.0F, 0.6F, 0.1F}},
+      {{0.4F, 0.8F, 0.2F}},
+      {{0.9F, 0.2F, 0.6F}},
+      {{0.2F, 0.5F, 1.0F}},
+      {{1.0F, 0.3F, 0.3F}},
+      {{0.7F, 0.7F, 0.1F}},
+      {{0.5F, 0.3F, 1.0F}},
+      {{0.1F, 0.8F, 0.6F}},
+      {{1.0F, 0.4F, 0.8F}},
+      {{0.8F, 0.5F, 0.2F}},
+      {{0.6F, 0.8F, 1.0F}},
+    }};
+
+    std_msgs::msg::ColorRGBA color;
+    const auto & rgb = palette[index % palette.size()];
+    color.r = rgb[0];
+    color.g = rgb[1];
+    color.b = rgb[2];
+    color.a = 1.0F;
+    return color;
   }
 
   geometry_msgs::msg::Point to_point(const Eigen::Vector3d & point) const
@@ -322,9 +379,9 @@ private:
   double marker_scale_{0.003};
   double marker_alpha_{0.5};
 
-  std::array<std::string, 4> sensor_frames_{{"tof_N", "tof_S", "tof_E", "tof_W"}};
-  std::array<std::string, 4> range_topics_{{
-    "prox_distance1", "prox_distance2", "prox_distance3", "prox_distance4"}};
+  std::vector<std::string> sensor_frames_;
+  std::vector<std::string> range_topics_;
+  std::vector<std::string> ignored_marker_namespaces_;
   std::vector<RaySample> samples_;
   std::vector<SphereObstacle> obstacles_;
 

@@ -33,7 +33,7 @@ public:
 private:
   pinocchio::Model model_;
   std::array<pinocchio::FrameIndex, RB10Model::LINK_COUNT> frame_ids_{};
-  std::array<pinocchio::FrameIndex, 4> sensor_frame_ids_{};
+  std::array<pinocchio::FrameIndex, RB10Model::sensor_control_points.size()> sensor_frame_ids_{};
   std::array<double, 6> lower_limits_{};
   std::array<double, 6> upper_limits_{};
 

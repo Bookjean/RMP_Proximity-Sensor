@@ -496,7 +496,7 @@ source /opt/ros/humble/setup.bash
 source /home/song/ros2_ws/install/setup.bash
 set -u
 
-ros2 launch rb10_rmpflow_rviz rb10_rmpflow_real_target_position_p45d45.launch.py \\
+ros2 launch rb10_rmpflow_rviz rb10_rmpflow_test.launch.py \\
   params_file:="{params_file}" \\
   record_data:=true \\
   recording_output_directory:="{dataset_dir}" \\

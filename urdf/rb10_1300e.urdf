@@ -375,8 +375,8 @@
   </joint>
 
   <joint name="link6_1_joint" type="fixed">
-    <origin rpy="0 0 0" xyz="0 0 0"/>
-    <parent link="link6"/>
+    <origin rpy="0 0 0" xyz="0 0 0.11715"/>
+    <parent link="link5"/>
     <child link="link6_1"/>
   </joint>
 

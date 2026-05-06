@@ -104,6 +104,10 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
+        link6_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
         sensor_link2:
           Alpha: 1
           Show Axes: false
@@ -128,6 +132,22 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
+        tof6_1_F:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof6_1_L:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof6_1_R:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof6_1_U:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
         tof_E:
           Alpha: 1
           Show Axes: false
@@ -166,22 +186,22 @@ Visualization Manager:
         Value: /goal_marker
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
+      Enabled: false
       Name: ControlPoints
       Namespaces:
-        control_points: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /control_points
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Obstacles
       Namespaces:
-        proximity_obstacles: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -256,6 +276,10 @@ Visualization Manager:
           Value: true
         link6:
           Value: true
+        link6_1:
+          Value: true
+        rmp_goal_target:
+          Value: true
         sensor_link2:
           Value: true
         sensor_link3:
@@ -266,7 +290,13 @@ Visualization Manager:
           Value: true
         tcp_rmp:
           Value: true
-        rmp_goal_target:
+        tof6_1_F:
+          Value: true
+        tof6_1_L:
+          Value: true
+        tof6_1_R:
+          Value: true
+        tof6_1_U:
           Value: true
         tof_E:
           Value: true
@@ -283,8 +313,6 @@ Visualization Manager:
       Show Names: true
       Tree:
         base_link:
-          rmp_goal_target:
-            {}
           link0:
             link1:
               link2:
@@ -293,6 +321,15 @@ Visualization Manager:
                     link4:
                       link5:
                         link6:
+                          link6_1:
+                            tof6_1_F:
+                              {}
+                            tof6_1_L:
+                              {}
+                            tof6_1_R:
+                              {}
+                            tof6_1_U:
+                              {}
                           tcp:
                             gripper:
                               {}
@@ -312,6 +349,8 @@ Visualization Manager:
                       {}
                 sensor_link2:
                   {}
+          rmp_goal_target:
+            {}
       Update Interval: 0
       Value: true
   Enabled: true
@@ -350,10 +389,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.17741942405700684
+      Pitch: 0.2624194025993347
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 4.731195449829102
+      Yaw: 4.88119649887085
     Saved: ~
 Window Geometry:
   Displays:

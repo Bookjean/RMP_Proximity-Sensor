@@ -94,7 +94,10 @@ public:
 
   static const char * filter_type_to_string(FilterType filter_type)
   {
-    return filter_type == FilterType::kAlphaBeta ? "alpha-beta" : "moving-average";
+    if (filter_type == FilterType::kAlphaBeta) {
+      return "alpha-beta";
+    }
+    return "moving-average";
   }
 
   SynchronizedVelocityFilter(
@@ -951,8 +954,8 @@ public:
     declare_parameter("hardware_data_request_rate", 500.0);
     declare_parameter("use_synced_input_velocity_filter", false);
     declare_parameter("synced_input_velocity_filter_alpha", 0.35);
-    declare_parameter("synced_input_velocity_filter_beta", 0.015);
-    declare_parameter("synced_input_velocity_filter_type", std::string("moving_average"));
+    declare_parameter("synced_input_velocity_filter_beta", 0.02);
+    declare_parameter("synced_input_velocity_filter_type", std::string("alpha-beta"));
     declare_parameter("synced_input_velocity_ratio_tolerance", 0.05);
     declare_parameter("hardware_state_topic", "hardware_joint_states");
     declare_parameter("hardware_command_topic", "hardware_joint_command");
@@ -2208,6 +2211,7 @@ private:
         if (publish_joint_states_enabled_) {
           publish_joint_states(state_);
         }
+        publish_rmp_ee_pose(measured_context);
         RCLCPP_INFO_THROTTLE(
           get_logger(),
           *get_clock(),
@@ -2227,6 +2231,7 @@ private:
         if (publish_joint_states_enabled_) {
           publish_joint_states(state_);
         }
+        publish_rmp_ee_pose(measured_context);
         RCLCPP_INFO_THROTTLE(
           get_logger(),
           *get_clock(),

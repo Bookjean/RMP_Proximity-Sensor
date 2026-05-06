@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Collision RMP Curves</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      color: #1f2933;
+      background: #f5f7fa;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+    }
+    .summary {
+      margin: 0 0 20px;
+      line-height: 1.45;
+      color: #425466;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 16px;
+    }
+    section {
+      background: white;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    h2 {
+      margin: 0 0 10px;
+      font-size: 17px;
+    }
+    canvas {
+      width: 100%;
+      height: 300px;
+      display: block;
+    }
+    code {
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      background: #eef2f7;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    .formula {
+      margin: 10px 0 0;
+      font-size: 13px;
+      line-height: 1.45;
+      color: #52606d;
+    }
+    .params {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 8px 16px;
+      margin: 16px 0 20px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Collision RMP Distance Curves</h1>
+  <p class="summary">
+    Current curves use <code>config/params.yaml</code> collision parameters.
+    The metric plot compares <code>collision_rmp_metric_modulation_radius = 0.40 m</code>
+    with <code>0.25 m</code>.
+    Here <code>x</code> is clearance distance after subtracting obstacle/control-point radii and margin.
+  </p>
+
+  <div class="params" id="params"></div>
+
+  <div class="grid">
+    <section>
+      <h2>Repulsion Acceleration</h2>
+      <canvas id="repel"></canvas>
+      <p class="formula">
+        <code>repel(x) = repulsion_gain * exp(-x / repulsion_std_dev)</code>
+      </p>
+    </section>
+
+    <section>
+      <h2>Damping Acceleration While Approaching</h2>
+      <canvas id="damping"></canvas>
+      <p class="formula">
+        <code>damping(x, xd) = -(1 - sigmoid(xd / velocity_gate)) * damping_gain * xd / (x / damping_std_dev + eps)</code>
+      </p>
+    </section>
+
+    <section>
+      <h2>Effective Collision Acceleration</h2>
+      <canvas id="effectiveAccel"></canvas>
+      <p class="formula">
+        <code>a_eff = repel + damping</code>, displayed as 0 outside each metric modulation radius because <code>M = 0</code> there.
+      </p>
+    </section>
+
+    <section>
+      <h2>Metric Scalar, Clipped at 10000</h2>
+      <canvas id="metric"></canvas>
+      <p class="formula">
+        <code>M(x, xd) = metric_scalar / (x / exploder_std_dev + exploder_eps) * (1 - x / radius)^2 * (1 - sigmoid(xd / velocity_gate))</code>
+      </p>
+    </section>
+  </div>
+</main>
+
+<script>
+const p = {
+  dampingGain: 50.0,
+  dampingStdDev: 0.01,
+  dampingRobustnessEps: 0.01,
+  dampingVelocityGate: 0.01,
+  repulsionGain: 20.0,
+  repulsionStdDev: 0.05,
+  metricRadius: 0.4,
+  metricScalar: 5000.0,
+  metricExploderStdDev: 0.01,
+  metricExploderEps: 0.001
+};
+
+document.getElementById("params").innerHTML = [
+  ["collision_rmp_damping_gain", p.dampingGain],
+  ["collision_rmp_damping_std_dev", p.dampingStdDev + " m"],
+  ["collision_rmp_damping_velocity_gate_length_scale", p.dampingVelocityGate + " m/s"],
+  ["collision_rmp_repulsion_gain", p.repulsionGain],
+  ["collision_rmp_repulsion_std_dev", p.repulsionStdDev + " m"],
+  ["collision_rmp_metric_modulation_radius", p.metricRadius + " m"],
+  ["collision_rmp_metric_scalar", p.metricScalar],
+  ["collision_rmp_metric_exploder_std_dev", p.metricExploderStdDev + " m"],
+  ["collision_rmp_metric_exploder_eps", p.metricExploderEps]
+].map(([k, v]) => `<div><code>${k}</code>: ${v}</div>`).join("");
+
+function sigmoid(v) {
+  return 1.0 / (1.0 + Math.exp(-v));
+}
+
+function repel(x) {
+  return p.repulsionGain * Math.exp(-(x / p.repulsionStdDev));
+}
+
+function damping(x, xd) {
+  const sigma = sigmoid(xd / p.dampingVelocityGate);
+  return -(1.0 - sigma) * p.dampingGain * xd /
+    (x / p.dampingStdDev + p.dampingRobustnessEps);
+}
+
+function collisionAccel(x, xd) {
+  return repel(x) + damping(x, xd);
+}
+
+function effectiveCollisionAccel(x, xd, radius) {
+  return x <= radius ? collisionAccel(x, xd) : 0.0;
+}
+
+function metric(x, xd, radius = p.metricRadius) {
+  if (x > radius) return 0.0;
+  const gate = Math.pow(1.0 - x / radius, 2);
+  const base = p.metricScalar /
+    (x / p.metricExploderStdDev + p.metricExploderEps);
+  const sigma = sigmoid(xd / p.dampingVelocityGate);
+  return base * gate * (1.0 - sigma);
+}
+
+function samples(fn, xMax = 0.6, n = 320, yClip = null) {
+  const xs = [];
+  for (let i = 0; i <= n; i += 1) {
+    const x = xMax * i / n;
+    const y = fn(x);
+    xs.push([x, yClip === null ? y : Math.min(y, yClip)]);
+  }
+  return xs;
+}
+
+function drawPlot(canvasId, curves, yLabel, options = {}) {
+  const canvas = document.getElementById(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  const w = rect.width;
+  const h = rect.height;
+  const pad = {left: 54, right: 16, top: 16, bottom: 42};
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
+
+  const all = curves.flatMap(c => c.data);
+  const xMin = 0.0;
+  const xMax = 0.6;
+  let yMin = Math.min(0, ...all.map(v => v[1]));
+  let yMax = Math.max(...all.map(v => v[1]));
+  if (typeof options.yMax === "number") yMax = options.yMax;
+  if (typeof options.yMin === "number") yMin = options.yMin;
+  if (yMax <= yMin) yMax = yMin + 1.0;
+  if (typeof options.yMax !== "number") yMax *= 1.05;
+
+  const sx = x => pad.left + (x - xMin) / (xMax - xMin) * plotW;
+  const sy = y => pad.top + plotH - (y - yMin) / (yMax - yMin) * plotH;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = "#d9e2ec";
+  ctx.lineWidth = 1;
+  ctx.fillStyle = "#52606d";
+  ctx.font = "12px Arial";
+
+  for (let i = 0; i <= 6; i += 1) {
+    const x = xMin + (xMax - xMin) * i / 6;
+    ctx.beginPath();
+    ctx.moveTo(sx(x), pad.top);
+    ctx.lineTo(sx(x), pad.top + plotH);
+    ctx.stroke();
+    ctx.fillText(x.toFixed(2), sx(x) - 12, h - 18);
+  }
+  for (let i = 0; i <= 5; i += 1) {
+    const y = yMin + (yMax - yMin) * i / 5;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, sy(y));
+    ctx.lineTo(pad.left + plotW, sy(y));
+    ctx.stroke();
+    ctx.fillText(compact(y), 5, sy(y) + 4);
+  }
+
+  ctx.strokeStyle = "#1f2933";
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left, pad.top + plotH);
+  ctx.lineTo(pad.left + plotW, pad.top + plotH);
+  ctx.stroke();
+  ctx.fillText("x [m]", pad.left + plotW / 2 - 14, h - 4);
+  ctx.save();
+  ctx.translate(14, pad.top + plotH / 2 + 24);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+
+  curves.forEach(curve => {
+    ctx.strokeStyle = curve.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    curve.data.forEach(([x, y], index) => {
+      if (index === 0) ctx.moveTo(sx(x), sy(y));
+      else ctx.lineTo(sx(x), sy(y));
+    });
+    ctx.stroke();
+  });
+
+  let legendY = pad.top + 8;
+  curves.forEach(curve => {
+    ctx.strokeStyle = curve.color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(pad.left + 12, legendY);
+    ctx.lineTo(pad.left + 36, legendY);
+    ctx.stroke();
+    ctx.fillStyle = "#1f2933";
+    ctx.fillText(curve.label, pad.left + 44, legendY + 4);
+    legendY += 18;
+  });
+}
+
+function compact(v) {
+  if (Math.abs(v) >= 1000000) return (v / 1000000).toFixed(1) + "M";
+  if (Math.abs(v) >= 1000) return (v / 1000).toFixed(1) + "k";
+  if (Math.abs(v) >= 10) return v.toFixed(0);
+  if (Math.abs(v) >= 1) return v.toFixed(1);
+  return v.toFixed(2);
+}
+
+function render() {
+  drawPlot("repel", [
+    {label: "repel(x)", color: "#0b7285", data: samples(repel)}
+  ], "accel");
+  drawPlot("damping", [
+    {label: "xd = -0.01 m/s", color: "#9c36b5", data: samples(x => damping(x, -0.01))},
+    {label: "xd = -0.03 m/s", color: "#d9480f", data: samples(x => damping(x, -0.03))}
+  ], "accel");
+  drawPlot("effectiveAccel", [
+    {label: "raw, xd = -0.02", color: "#868e96", data: samples(x => collisionAccel(x, -0.02))},
+    {label: "R = 0.40, xd = -0.02", color: "#d9480f", data: samples(x => effectiveCollisionAccel(x, -0.02, 0.40))},
+    {label: "R = 0.25, xd = -0.02", color: "#5c7cfa", data: samples(x => effectiveCollisionAccel(x, -0.02, 0.25))}
+  ], "accel");
+  drawPlot("metric", [
+    {label: "R = 0.40, xd = -0.02", color: "#d9480f", data: samples(x => metric(x, -0.02, 0.40), 0.6, 320, 10000)},
+    {label: "R = 0.25, xd = -0.02", color: "#5c7cfa", data: samples(x => metric(x, -0.02, 0.25), 0.6, 320, 10000)},
+    {label: "R = 0.40, xd = 0.00", color: "#0b7285", data: samples(x => metric(x, 0.0, 0.40), 0.6, 320, 10000)},
+    {label: "R = 0.25, xd = 0.00", color: "#2b8a3e", data: samples(x => metric(x, 0.0, 0.25), 0.6, 320, 10000)}
+  ], "metric", {yMin: 0, yMax: 10000});
+}
+
+window.addEventListener("resize", render);
+render();
+</script>
+</body>
+</html>

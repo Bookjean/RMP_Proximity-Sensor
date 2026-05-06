@@ -37,7 +37,6 @@ public:
     declare_parameter("goal_command_point_topic", "goal_position_cmd");
     declare_parameter("goal_command_pose_topic", "goal_pose_cmd");
 
-    goal_pub_ = create_publisher<geometry_msgs::msg::Point>("goal_position", 10);
     goal_pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("goal_pose", 10);
     server_ = std::make_shared<interactive_markers::InteractiveMarkerServer>(
       "goal_marker_server",
@@ -314,10 +313,6 @@ private:
       return;
     }
 
-    geometry_msgs::msg::Point msg;
-    msg = goal_pose_.position;
-    goal_pub_->publish(msg);
-
     geometry_msgs::msg::PoseStamped pose_msg;
     pose_msg.header.frame_id = "base_link";
     pose_msg.header.stamp = now();
@@ -330,7 +325,6 @@ private:
   bool goal_initialized_{false};
   bool lock_orientation_to_tcp_{false};
   bool startup_log_emitted_{false};
-  rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr goal_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pose_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr goal_point_command_sub_;

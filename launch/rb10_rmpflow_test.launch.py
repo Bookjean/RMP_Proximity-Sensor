@@ -45,6 +45,16 @@ def generate_launch_description():
     recording_rate = LaunchConfiguration("recording_rate")
     recording_output_directory = LaunchConfiguration("recording_output_directory")
     recording_output_prefix = LaunchConfiguration("recording_output_prefix")
+    recorder_range_topics = [
+        "/proximity_distance1",
+        "/proximity_distance2",
+        "/proximity_distance3",
+        "/proximity_distance4",
+        "/proximity_distance9",
+        "/proximity_distance10",
+        "/proximity_distance11",
+        "/proximity_distance12",
+    ]
     servo_t1 = LaunchConfiguration("servo_t1")
     servo_t2 = LaunchConfiguration("servo_t2")
     servo_gain = LaunchConfiguration("servo_gain")
@@ -66,6 +76,13 @@ def generate_launch_description():
     command_guard_max_step_rad = LaunchConfiguration("command_guard_max_step_rad")
     command_guard_max_velocity_rad_s = LaunchConfiguration("command_guard_max_velocity_rad_s")
     bridge_publish_rate = LaunchConfiguration("bridge_publish_rate")
+    estimate_velocity_in_controller = LaunchConfiguration("estimate_velocity_in_controller")
+    use_synced_input_velocity_filter = LaunchConfiguration("use_synced_input_velocity_filter")
+    synced_input_velocity_filter_alpha = LaunchConfiguration("synced_input_velocity_filter_alpha")
+    synced_input_velocity_filter_beta = LaunchConfiguration("synced_input_velocity_filter_beta")
+    synced_input_velocity_ratio_tolerance = LaunchConfiguration("synced_input_velocity_ratio_tolerance")
+    use_velocity_feedback_in_solver = LaunchConfiguration("use_velocity_feedback_in_solver")
+    measured_velocity_feedback_blend = LaunchConfiguration("measured_velocity_feedback_blend")
     record_joint_velocity = LaunchConfiguration("record_joint_velocity")
     joint_velocity_log_directory = LaunchConfiguration("joint_velocity_log_directory")
     joint_velocity_log_prefix = LaunchConfiguration("joint_velocity_log_prefix")
@@ -110,6 +127,14 @@ def generate_launch_description():
         "publish_debug_joint_state_sources": publish_debug_joint_state_sources,
         "command_guard_max_step_rad": command_guard_max_step_rad,
         "command_guard_max_velocity_rad_s": command_guard_max_velocity_rad_s,
+        "estimate_velocity_in_controller": estimate_velocity_in_controller,
+        "use_synced_input_velocity_filter": use_synced_input_velocity_filter,
+        "synced_input_velocity_filter_type": "alpha-beta",
+        "synced_input_velocity_filter_alpha": synced_input_velocity_filter_alpha,
+        "synced_input_velocity_filter_beta": synced_input_velocity_filter_beta,
+        "synced_input_velocity_ratio_tolerance": synced_input_velocity_ratio_tolerance,
+        "use_velocity_feedback_in_solver": use_velocity_feedback_in_solver,
+        "measured_velocity_feedback_blend": measured_velocity_feedback_blend,
     }
 
     api_bridge = Node(
@@ -227,13 +252,22 @@ def generate_launch_description():
             "output_prefix": recording_output_prefix,
             "joint_state_topic": "/joint_states",
             "command_topic": "/position_controllers/commands",
-            "goal_position_topic": "/goal_position",
             "goal_pose_topic": "/goal_pose",
             "ee_pose_topic": "/rmp_ee_pose",
             "obstacle_topic": "/obstacles",
+            "range_topics": recorder_range_topics,
+            "max_obstacles": len(recorder_range_topics),
             "reference_joint_state_topic": "/rb10/reference_joint_states",
             "measured_joint_state_topic": "/rb10/measured_joint_states",
             "tracking_error_topic": "/rb10/joint_tracking_error_deg",
+            "estimate_velocity_in_controller": estimate_velocity_in_controller,
+            "use_synced_input_velocity_filter": use_synced_input_velocity_filter,
+            "synced_input_velocity_filter_type": "alpha-beta",
+            "synced_input_velocity_filter_alpha": synced_input_velocity_filter_alpha,
+            "synced_input_velocity_filter_beta": synced_input_velocity_filter_beta,
+            "synced_input_velocity_ratio_tolerance": synced_input_velocity_ratio_tolerance,
+            "use_velocity_feedback_in_solver": use_velocity_feedback_in_solver,
+            "measured_velocity_feedback_blend": measured_velocity_feedback_blend,
         }],
     )
 
@@ -332,6 +366,41 @@ def generate_launch_description():
             description="RB10 state receive/publish rate in Hz before filtering.",
         ),
         DeclareLaunchArgument(
+            "estimate_velocity_in_controller",
+            default_value="false",
+            description="Estimate qd in the 50 Hz controller loop from measured q.",
+        ),
+        DeclareLaunchArgument(
+            "use_synced_input_velocity_filter",
+            default_value="true",
+            description="Use the direct backend high-rate input velocity filter for solver qd.",
+        ),
+        DeclareLaunchArgument(
+            "synced_input_velocity_filter_alpha",
+            default_value="0.35",
+            description="Alpha for the high-rate velocity filter.",
+        ),
+        DeclareLaunchArgument(
+            "synced_input_velocity_filter_beta",
+            default_value="0.02",
+            description="Beta for the fixed alpha-beta synchronized high-rate velocity filter.",
+        ),
+        DeclareLaunchArgument(
+            "synced_input_velocity_ratio_tolerance",
+            default_value="0.05",
+            description="Tolerance when matching input/control rates to an integer sync ratio.",
+        ),
+        DeclareLaunchArgument(
+            "use_velocity_feedback_in_solver",
+            default_value="true",
+            description="Pass qd feedback into the RMP solver.",
+        ),
+        DeclareLaunchArgument(
+            "measured_velocity_feedback_blend",
+            default_value="1.0",
+            description="Blend factor for measured/synced qd before the RMP solve.",
+        ),
+        DeclareLaunchArgument(
             "record_data",
             default_value="false",
             description="Record RMP topics to a dataset file.",
@@ -353,8 +422,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "auto_start_recording",
-            default_value="true",
-            description="Start recording immediately when the recorder node launches.",
+            default_value="false",
+            description="Keep recorder idle until the experiment runner starts it.",
         ),
         DeclareLaunchArgument(
             "recording_rate",
@@ -393,12 +462,12 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "bridge_max_command_step_deg",
-            default_value="0.25",
+            default_value="1.0",
             description="Hard per-cycle joint-step limit for the Python RB10 bridge to avoid hardware safety trips.",
         ),
         DeclareLaunchArgument(
             "bridge_max_command_velocity_deg_s",
-            default_value="25.0",
+            default_value="100.0",
             description="Hard joint-velocity limit used by the Python RB10 bridge command guard.",
         ),
         DeclareLaunchArgument(
@@ -408,12 +477,12 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "command_guard_max_step_rad",
-            default_value="1.745329252",
+            default_value="0.00436332313",
             description="Maximum per-cycle joint position correction applied by the direct-controller command guard, in radians.",
         ),
         DeclareLaunchArgument(
             "command_guard_max_velocity_rad_s",
-            default_value="1.745329252",
+            default_value="2.5",
             description="Maximum joint velocity allowed by the direct-controller command guard, in radians per second.",
         ),
         DeclareLaunchArgument(

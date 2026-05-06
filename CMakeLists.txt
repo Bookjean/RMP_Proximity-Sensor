@@ -282,6 +282,10 @@ install(
     scripts/move_to_saved_start_pose.py
     scripts/joint_velocity_logger.py
     scripts/plot_joint_velocity_log.py
+    scripts/experiment_goal_runner.py
+    scripts/plot_ee_trajectory_3d.py
+    scripts/plot_velocity_filter_comparison.py
+    scripts/plot_velocity_dataset_comparison.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -51,6 +51,16 @@ def generate_launch_description():
     recording_rate = LaunchConfiguration("recording_rate")
     recording_output_directory = LaunchConfiguration("recording_output_directory")
     recording_output_prefix = LaunchConfiguration("recording_output_prefix")
+    recorder_range_topics = [
+        "/proximity_distance1",
+        "/proximity_distance2",
+        "/proximity_distance3",
+        "/proximity_distance4",
+        "/proximity_distance9",
+        "/proximity_distance10",
+        "/proximity_distance11",
+        "/proximity_distance12",
+    ]
     servo_t1 = LaunchConfiguration("servo_t1")
     servo_t2 = LaunchConfiguration("servo_t2")
     servo_gain = LaunchConfiguration("servo_gain")
@@ -77,7 +87,6 @@ def generate_launch_description():
     use_synced_input_velocity_filter = LaunchConfiguration("use_synced_input_velocity_filter")
     synced_input_velocity_filter_alpha = LaunchConfiguration("synced_input_velocity_filter_alpha")
     synced_input_velocity_filter_beta = LaunchConfiguration("synced_input_velocity_filter_beta")
-    synced_input_velocity_filter_type = LaunchConfiguration("synced_input_velocity_filter_type")
     synced_input_velocity_ratio_tolerance = LaunchConfiguration("synced_input_velocity_ratio_tolerance")
     estimate_velocity_in_controller = LaunchConfiguration("estimate_velocity_in_controller")
     controller_velocity_filter_alpha = LaunchConfiguration("controller_velocity_filter_alpha")
@@ -137,7 +146,7 @@ def generate_launch_description():
         "use_synced_input_velocity_filter": use_synced_input_velocity_filter,
         "synced_input_velocity_filter_alpha": synced_input_velocity_filter_alpha,
         "synced_input_velocity_filter_beta": synced_input_velocity_filter_beta,
-        "synced_input_velocity_filter_type": synced_input_velocity_filter_type,
+        "synced_input_velocity_filter_type": "alpha-beta",
         "synced_input_velocity_ratio_tolerance": synced_input_velocity_ratio_tolerance,
         "estimate_velocity_in_controller": estimate_velocity_in_controller,
         "controller_velocity_filter_alpha": controller_velocity_filter_alpha,
@@ -313,9 +322,10 @@ def generate_launch_description():
             "output_prefix": recording_output_prefix,
             "joint_state_topic": normalized_joint_state_topic,
             "command_topic": "/position_controllers/commands",
-            "goal_position_topic": "/goal_position",
             "goal_pose_topic": "/goal_pose",
             "obstacle_topic": "/obstacles",
+            "range_topics": recorder_range_topics,
+            "max_obstacles": len(recorder_range_topics),
             "reference_joint_state_topic": "/rb10/reference_joint_states",
             "measured_joint_state_topic": "/rb10/measured_joint_states",
             "tracking_error_topic": "/rb10/joint_tracking_error_deg",
@@ -495,8 +505,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "auto_start_recording",
-            default_value="true",
-            description="Start recording immediately when the recorder node launches.",
+            default_value="false",
+            description="Keep recorder idle until the experiment runner starts it.",
         ),
         DeclareLaunchArgument(
             "recording_rate",
@@ -535,12 +545,12 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "bridge_max_command_step_deg",
-            default_value="0.25",
+            default_value="1.0",
             description="Hard per-cycle joint-step limit for the Python RB10 bridge to avoid hardware safety trips.",
         ),
         DeclareLaunchArgument(
             "bridge_max_command_velocity_deg_s",
-            default_value="25.0",
+            default_value="100.0",
             description="Hard joint-velocity limit used by the Python RB10 bridge command guard.",
         ),
         DeclareLaunchArgument(
@@ -654,16 +664,9 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "synced_input_velocity_filter_beta",
-            default_value="0.015",
+            default_value="0.02",
             description=(
-                "Beta parameter for alpha-beta mode of the synchronized high-rate input velocity filter."
-            ),
-        ),
-        DeclareLaunchArgument(
-            "synced_input_velocity_filter_type",
-            default_value="moving_average",
-            description=(
-                "Filter type for synced input velocity: moving_average (default) or alpha-beta."
+                "Beta parameter for the fixed alpha-beta synchronized high-rate input velocity filter."
             ),
         ),
         DeclareLaunchArgument(
@@ -708,7 +711,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "command_guard_max_velocity_rad_s",
-            default_value="1.745329252",
+            default_value="2.5",
             description=(
                 "Maximum joint velocity allowed by the controller command guard, in radians per "
                 "second."

@@ -3,6 +3,16 @@
 rmpflow_controller:
   ros__parameters:
     control_rate: 50.0
+    estimate_velocity_in_controller: false
+    controller_velocity_filter_alpha: 0.5
+    use_synced_input_velocity_filter: true
+    synced_input_velocity_filter_type: "alpha-beta"
+    synced_input_velocity_filter_alpha: 0.35
+    synced_input_velocity_filter_beta: 0.02
+    synced_input_velocity_ratio_tolerance: 0.05
+    use_velocity_feedback_in_solver: true
+    measured_position_feedback_blend: 0.5
+    measured_velocity_feedback_blend: 1.0
     visualization_rate: 20.0
     goal_x: 0.6
     goal_y: -0.4
@@ -32,6 +42,7 @@ rmpflow_controller:
     orientation_goal: [0.0, 0.0, 1.0]
     solve_method: "rmp2"
     rmp_type: "canonical"
+    # RMP graph topology
     graph:
       node_names:
         - cspace_target
@@ -142,7 +153,7 @@ rmpflow_controller:
         parent: root
         task_map: link_position
         leaf: target
-        enabled: true
+        enabled: false
         target_key: body_goal
         link_name: link4
         axis: "z"
@@ -153,7 +164,7 @@ rmpflow_controller:
         parent: root
         task_map: link_orientation_axis
         leaf: orientation_target
-        enabled: true
+        enabled: false
         target_key: orientation_goal_x
         link_name: tcp_rmp
         axis: "x"
@@ -164,7 +175,7 @@ rmpflow_controller:
         parent: root
         task_map: link_orientation_axis
         leaf: orientation_target
-        enabled: true
+        enabled: false
         target_key: orientation_goal_y
         link_name: tcp_rmp
         axis: "y"
@@ -175,7 +186,7 @@ rmpflow_controller:
         parent: root
         task_map: link_orientation_axis
         leaf: orientation_target
-        enabled: true
+        enabled: false
         target_key: orientation_goal_z
         link_name: tcp_rmp
         axis: "z"
@@ -186,7 +197,7 @@ rmpflow_controller:
         parent: root
         task_map: link_orientation_axis
         leaf: axis_target
-        enabled: false
+        enabled: true
         target_key: orientation_goal_x
         link_name: tcp_rmp
         axis: "x"
@@ -197,7 +208,7 @@ rmpflow_controller:
         parent: root
         task_map: link_orientation_axis
         leaf: axis_target
-        enabled: false
+        enabled: true
         target_key: orientation_goal_y
         link_name: tcp_rmp
         axis: "y"
@@ -214,12 +225,58 @@ rmpflow_controller:
         axis: "z"
         handcrafted_leaf: none
         identity_multiplier: 0.0
+    # RMP solver common
     root_solve_offset: 0.001
-    cspace_target_metric_scalar: 10.0
+
+    # Collision RMP
+    collision_rmp_margin: 0.0
+    collision_rmp_damping_gain: 20.0
+    collision_rmp_damping_std_dev: 0.01
+    collision_rmp_damping_robustness_eps: 0.01
+    collision_rmp_damping_velocity_gate_length_scale: 0.01
+    collision_rmp_repulsion_gain: 100.0
+    collision_rmp_repulsion_std_dev: 0.05
+    collision_rmp_metric_modulation_radius: 5.0
+    collision_rmp_metric_scalar: 2500000.0
+    collision_rmp_metric_exploder_std_dev: 0.01
+    collision_rmp_metric_exploder_eps: 1.0
+
+    # Target RMP
+    target_rmp_accel_p_gain: 50.0
+    target_rmp_accel_d_gain: 20.0
+    target_rmp_accel_norm_eps: 0.08
+    target_rmp_metric_alpha_length_scale: 0.01
+    target_rmp_min_metric_alpha: 0.1
+    target_rmp_max_metric_scalar: 100000.0
+    target_rmp_min_metric_scalar: 25000.0
+    target_rmp_proximity_metric_boost_scalar: 1.0
+    target_rmp_proximity_metric_boost_length_scale: 0.02
+
+    # Axis Target RMP
+    axis_target_rmp_accel_p_gain: 50.0
+    axis_target_rmp_accel_d_gain: 20.0
+    axis_target_rmp_metric_scalar: 5000.0
+    axis_target_rmp_proximity_metric_boost_scalar: 10.0
+    axis_target_rmp_proximity_metric_boost_length_scale: 0.01
+
+    # Orientation RMP
+    orientation_rmp_accel_p_gain: 1000.0
+    orientation_rmp_accel_d_gain: 100.0
+    orientation_rmp_metric_scalar: 0.0
+
+    # Damping RMP
+    damping_rmp_accel_d_gain: 50.0
+    damping_rmp_metric_scalar: 0.0
+    damping_rmp_inertia: 0.0
+
+    # C-space Target RMP
+    cspace_target_metric_scalar: 0.0
     cspace_target_position_gain: 25.0
     cspace_target_damping_gain: 18.0
     cspace_target_robust_position_term_thresh: 0.5
     cspace_target_inertia: 0.0
+
+    # Joint Limit RMP
     joint_limit_metric_scalar: 0.0
     joint_limit_metric_length_scale: 0.01
     joint_limit_metric_exploder_eps: 0.001
@@ -228,43 +285,18 @@ rmpflow_controller:
     joint_limit_accel_potential_gain: 1.0
     joint_limit_accel_potential_exploder_eps: 0.01
     joint_limit_accel_potential_exploder_length_scale: 0.1
+
+    # Joint Velocity Cap RMP
     joint_velocity_cap_max_velocity: 1.75
     joint_velocity_cap_velocity_damping_region: 0.05
     joint_velocity_cap_damping_gain: 18.0
     joint_velocity_cap_metric_weight: 0.0
+
+    # Command limits
     max_joint_accel: 20.0
-    command_guard_max_velocity_rad_s: 1.745329252
-    target_rmp_accel_p_gain: 50.0
-    target_rmp_accel_d_gain: 20.0
-    target_rmp_accel_norm_eps: 0.075
-    target_rmp_metric_alpha_length_scale: 0.2
-    target_rmp_min_metric_alpha: 0.03
-    target_rmp_max_metric_scalar: 1000.0
-    target_rmp_min_metric_scalar: 100.0
-    target_rmp_proximity_metric_boost_scalar: 1.0
-    target_rmp_proximity_metric_boost_length_scale: 1.0
-    orientation_rmp_accel_p_gain: 40.0
-    orientation_rmp_accel_d_gain: 20.0
-    orientation_rmp_metric_scalar: 50.0
-    axis_target_rmp_accel_p_gain: 150.0
-    axis_target_rmp_accel_d_gain: 40.0
-    axis_target_rmp_metric_scalar: 5.0
-    axis_target_rmp_proximity_metric_boost_scalar: 3.0
-    axis_target_rmp_proximity_metric_boost_length_scale: 0.01
-    collision_rmp_margin: 0.0
-    collision_rmp_damping_gain: 12.0
-    collision_rmp_damping_std_dev: 0.12
-    collision_rmp_damping_robustness_eps: 0.01
-    collision_rmp_damping_velocity_gate_length_scale: 0.05
-    collision_rmp_repulsion_gain: 16.0
-    collision_rmp_repulsion_std_dev: 0.25
-    collision_rmp_metric_modulation_radius: 0.25
-    collision_rmp_metric_scalar: 500.0
-    collision_rmp_metric_exploder_std_dev: 0.02
-    collision_rmp_metric_exploder_eps: 0.001
-    damping_rmp_accel_d_gain: 0.5
-    damping_rmp_metric_scalar: 10.0
-    damping_rmp_inertia: 0.0
+    command_guard_max_velocity_rad_s: 2.5
+
+    # Robot body guard obstacles
     body_obstacles:
       names:
         - link1_guard_1
@@ -501,16 +533,17 @@ proximity_obstacle_bridge:
     obstacle_radius: 0.08
     valid_margin: 0.001
     range_scale: 0.001
-    trigger_distance: 0.15
+    minimum_hold_distance: 0.05
+    trigger_distance: 0.3
     trigger_distances:
-      - 0.15
-      - 0.15
-      - 0.15
-      - 0.15
-      - 0.15
-      - 0.15
-      - 0.15
-      - 0.15
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
     range_topics:
       - "proximity_distance1"
       - "proximity_distance2"

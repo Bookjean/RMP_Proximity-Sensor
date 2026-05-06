@@ -8,7 +8,7 @@ import time
 from typing import Dict, List
 
 import rclpy
-from geometry_msgs.msg import Point, PoseStamped
+from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
@@ -38,7 +38,7 @@ SCENARIOS: Dict[str, Dict] = {
 class RmpDebugNode(Node):
     def __init__(self) -> None:
         super().__init__("rmp_debug")
-        self.goal_pub = self.create_publisher(Point, "goal_position", 10)
+        self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
         self.obstacle_pub = self.create_publisher(MarkerArray, "obstacles", 10)
         self.debug_sub = self.create_subscription(
             Float64MultiArray, "rmp_debug_state", self.on_debug_state, 10
@@ -62,9 +62,12 @@ class RmpDebugNode(Node):
         self.obstacles = list(obstacles)
 
     def publish_commands(self) -> None:
-        point = Point()
-        point.x, point.y, point.z = self.goal
-        self.goal_pub.publish(point)
+        goal = PoseStamped()
+        goal.header.frame_id = "base_link"
+        goal.header.stamp = self.get_clock().now().to_msg()
+        goal.pose.position.x, goal.pose.position.y, goal.pose.position.z = self.goal
+        goal.pose.orientation.w = 1.0
+        self.goal_pub.publish(goal)
 
         array = MarkerArray()
         for idx, obstacle in enumerate(self.obstacles):

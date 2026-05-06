@@ -40,6 +40,7 @@ public:
     declare_parameter("obstacle_radii", std::vector<double>{});
     declare_parameter("valid_margin", 1e-3);
     declare_parameter("range_scale", 0.001);
+    declare_parameter("minimum_hold_distance", 0.05);
     declare_parameter("trigger_distance", 0.15);
     declare_parameter("trigger_distances", std::vector<double>{});
     declare_parameter("rmp_flag_gate_enabled", false);
@@ -60,6 +61,9 @@ public:
     obstacle_radius_ = get_parameter("obstacle_radius").as_double();
     valid_margin_ = get_parameter("valid_margin").as_double();
     range_scale_ = get_parameter("range_scale").as_double();
+    minimum_hold_distance_ = std::max(
+      get_parameter("minimum_hold_distance").as_double(),
+      0.0);
     trigger_distance_ = get_parameter("trigger_distance").as_double();
     rmp_flag_gate_enabled_ = get_parameter("rmp_flag_gate_enabled").as_bool();
     rmp_active_flag_value_ = static_cast<int>(get_parameter("rmp_active_flag_value").as_int());
@@ -141,7 +145,7 @@ private:
       marker.type = visualization_msgs::msg::Marker::SPHERE;
 
       const auto & range_msg = latest_ranges_[index];
-      if (!range_msg.has_value() || !range_is_valid(*range_msg)) {
+      if (!range_msg.has_value() || !range_is_usable(*range_msg)) {
         marker.action = visualization_msgs::msg::Marker::DELETE;
         msg.markers.push_back(marker);
         continue;
@@ -152,7 +156,7 @@ private:
         continue;
       }
 
-      const double range_m = range_msg->range * range_scale_;
+      const double range_m = effective_range_m(*range_msg);
       if (range_m > trigger_distances_[index]) {
         marker.action = visualization_msgs::msg::Marker::DELETE;
         msg.markers.push_back(marker);
@@ -208,14 +212,20 @@ private:
     obstacles_cleared_for_inactive_ = true;
   }
 
-  bool range_is_valid(const sensor_msgs::msg::Range & msg) const
+  bool range_is_usable(const sensor_msgs::msg::Range & msg) const
   {
     if (!std::isfinite(msg.range)) {
       return false;
     }
-    return
-      msg.range > (msg.min_range + valid_margin_) &&
-      msg.range < (msg.max_range - valid_margin_);
+    if (msg.range < 0.0) {
+      return false;
+    }
+    return msg.range < (msg.max_range - valid_margin_);
+  }
+
+  double effective_range_m(const sensor_msgs::msg::Range & msg) const
+  {
+    return std::max(msg.range * range_scale_, minimum_hold_distance_);
   }
 
   std::optional<std::pair<Eigen::Vector3d, Eigen::Matrix3d>> lookup_sensor_transform(
@@ -251,6 +261,7 @@ private:
   double obstacle_radius_{0.05};
   double valid_margin_{1e-3};
   double range_scale_{0.001};
+  double minimum_hold_distance_{0.05};
   double trigger_distance_{0.3};
   bool rmp_flag_gate_enabled_{false};
   bool rmp_active_{true};

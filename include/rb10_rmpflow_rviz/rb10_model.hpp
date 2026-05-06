@@ -107,14 +107,14 @@ public:
   }};
 
   inline static const std::array<SensorControlPointSpec, 8> sensor_control_points{{
-    {"tof_N", LINK3_5, Eigen::Vector3d(-0.0645, 0.0, 0.285075), 0.15},
-    {"tof_S", LINK3_5, Eigen::Vector3d(0.0645, 0.0, 0.285075),  0.15},
-    {"tof_E", LINK3_5, Eigen::Vector3d(0.0, 0.0645, 0.285075),  0.15},
-    {"tof_W", LINK3_5, Eigen::Vector3d(0.0, -0.0645, 0.285075), 0.15},
-    {"tof6_1_F", LINK6, Eigen::Vector3d(0.0, 0.0, 0.06), 0.15},
-    {"tof6_1_L", LINK6, Eigen::Vector3d(-0.06, 0.0, 0.0),  0.15},
-    {"tof6_1_R", LINK6, Eigen::Vector3d(0.06, 0.0, 0.0), 0.15},
-    {"tof6_1_U", LINK6, Eigen::Vector3d(0.0, 0.0667, 0.0), 0.15},
+    {"tof_N", LINK3_5, Eigen::Vector3d(-0.0645, 0.0, 0.285075), 0.1},
+    {"tof_S", LINK3_5, Eigen::Vector3d(0.0645, 0.0, 0.285075),  0.1},
+    {"tof_E", LINK3_5, Eigen::Vector3d(0.0, 0.0645, 0.285075),  0.1},
+    {"tof_W", LINK3_5, Eigen::Vector3d(0.0, -0.0645, 0.285075), 0.1},
+    {"tof6_1_F", LINK5, Eigen::Vector3d(0.0, 0.0, 0.17715), 0.1},
+    {"tof6_1_L", LINK5, Eigen::Vector3d(-0.06, 0.0, 0.11715),  0.1},
+    {"tof6_1_R", LINK5, Eigen::Vector3d(0.06, 0.0, 0.11715), 0.1},
+    {"tof6_1_U", LINK5, Eigen::Vector3d(0.0, 0.0667, 0.11715), 0.1},
   }};
 
   static Eigen::Affine3d origin_transform(
@@ -166,6 +166,10 @@ public:
     transform = transform * Eigen::AngleAxisd(q[3], Eigen::Vector3d::UnitY());
     transform = transform * origin_transform(0.0, -0.11715, 0.0);
     transform = transform * Eigen::AngleAxisd(q[4], Eigen::Vector3d::UnitZ());
+    if (parent_link == LINK5) {
+      return transform;
+    }
+
     transform = transform * origin_transform(0.0, 0.0, 0.11715);
     if (parent_link == LINK6) {
       return transform * Eigen::AngleAxisd(q[5], Eigen::Vector3d::UnitY());

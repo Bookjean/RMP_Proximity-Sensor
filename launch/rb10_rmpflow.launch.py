@@ -45,7 +45,6 @@ def generate_launch_description():
     use_interactive_goal = LaunchConfiguration("use_interactive_goal")
     use_obstacles = LaunchConfiguration("use_obstacles")
     use_proximity_bridge = LaunchConfiguration("use_proximity_bridge")
-    use_tof_ray_visualizer = LaunchConfiguration("use_tof_ray_visualizer")
     record_data = LaunchConfiguration("record_data")
     auto_start_recording = LaunchConfiguration("auto_start_recording")
     recording_rate = LaunchConfiguration("recording_rate")
@@ -98,6 +97,12 @@ def generate_launch_description():
     visualization_rate = LaunchConfiguration("visualization_rate")
     publish_visualization = LaunchConfiguration("publish_visualization")
     publish_rmp_ee_pose = LaunchConfiguration("publish_rmp_ee_pose")
+    publish_target_metric = LaunchConfiguration("publish_target_metric")
+    target_metric_topic = LaunchConfiguration("target_metric_topic")
+    use_rmpflow_trace_logger = LaunchConfiguration("use_rmpflow_trace_logger")
+    rmpflow_trace_log_rate = LaunchConfiguration("rmpflow_trace_log_rate")
+    rmpflow_trace_log_directory = LaunchConfiguration("rmpflow_trace_log_directory")
+    rmpflow_trace_console_summary = LaunchConfiguration("rmpflow_trace_console_summary")
     record_joint_velocity = LaunchConfiguration("record_joint_velocity")
     joint_velocity_log_directory = LaunchConfiguration("joint_velocity_log_directory")
     joint_velocity_log_prefix = LaunchConfiguration("joint_velocity_log_prefix")
@@ -113,6 +118,8 @@ def generate_launch_description():
         "position_command_topic": "/position_controllers/commands",
         "publish_target_q": True,
         "target_q_topic": "/target_q",
+        "publish_target_metric": publish_target_metric,
+        "target_metric_topic": target_metric_topic,
         "publish_joint_states": ParameterValue(
             PythonExpression([
                 'True if "', use_direct_hardware_backend, '" == "true" else False'
@@ -289,25 +296,6 @@ def generate_launch_description():
         ],
     )
 
-    tof_ray_visualizer = Node(
-        package="rb10_rmpflow_rviz",
-        executable="tof_ray_visualizer",
-        name="tof_ray_visualizer",
-        output="screen",
-        condition=IfCondition(use_tof_ray_visualizer),
-        parameters=[{
-            "publish_rate": 20.0,
-            "max_range": 0.2,
-            "min_range": 0.02,
-            "sensor_face_width": 0.25,
-            "sensor_face_height": 0.25,
-            "sensor_grid_resolution": 7,
-            "edge_range_ratio": 0.6,
-            "edge_falloff_power": 2.0,
-            "ignored_marker_namespaces": ["proximity_obstacles", "body_obstacles"],
-        }],
-    )
-
     data_recorder = Node(
         package="rb10_rmpflow_rviz",
         executable="rmp_data_recorder.py",
@@ -344,6 +332,48 @@ def generate_launch_description():
             "output_directory": joint_velocity_log_directory,
             "output_prefix": joint_velocity_log_prefix,
             "flush_every": 1,
+        }],
+    )
+
+    rmpflow_trace_logger = Node(
+        package="rb10_rmpflow_rviz",
+        executable="rmpflow_trace_logger.py",
+        name="rmpflow_trace_logger",
+        output="screen",
+        condition=IfCondition(use_rmpflow_trace_logger),
+        parameters=[{
+            "log_rate_hz": rmpflow_trace_log_rate,
+            "console_summary": rmpflow_trace_console_summary,
+            "output_directory": rmpflow_trace_log_directory,
+            "rmp_flag_topic": "/RMP_flag",
+            "external_goal_topic": "/RMP_goal",
+            "controller_goal_topic": "/goal_pose",
+            "joint_state_topic": normalized_joint_state_topic,
+            "command_topic": "/position_controllers/commands",
+            "target_q_topic": "/target_q",
+            "target_metric_topic": target_metric_topic,
+            "debug_state_topic": "/rmp_debug_state",
+            "rmp_ee_pose_topic": "/rmp_ee_pose",
+            "obstacle_marker_topic": "/obstacles",
+            "repulsion_metric_marker_topic": "/repulsion_metric_markers",
+            "tcp_accel_marker_topic": "/tcp_accel_marker",
+            "range_scale": 0.001,
+            "minimum_hold_distance": 0.05,
+            "trigger_distance": 0.29,
+            "range_topics": [
+                "/proximity_distance1",
+                "/proximity_distance2",
+                "/proximity_distance3",
+                "/proximity_distance4",
+                "/proximity_distance5",
+                "/proximity_distance6",
+                "/proximity_distance7",
+                "/proximity_distance8",
+                "/proximity_distance9",
+                "/proximity_distance10",
+                "/proximity_distance11",
+                "/proximity_distance12",
+            ],
         }],
     )
 
@@ -451,11 +481,6 @@ def generate_launch_description():
             description="Use external proximity topics to build obstacle markers.",
         ),
         DeclareLaunchArgument(
-            "use_tof_ray_visualizer",
-            default_value="true",
-            description="Start the ToF ray marker visualizer.",
-        ),
-        DeclareLaunchArgument(
             "bridge_publish_rate",
             default_value="500.0",
             description="RB10 state receive/publish rate in Hz before filtering.",
@@ -482,6 +507,36 @@ def generate_launch_description():
             "publish_rmp_ee_pose",
             default_value="true",
             description="Publish the controller's internal RMP end-effector pose topic.",
+        ),
+        DeclareLaunchArgument(
+            "publish_target_metric",
+            default_value="true",
+            description="Publish the controller target RMP 3x3 leaf metric as Float64MultiArray.",
+        ),
+        DeclareLaunchArgument(
+            "target_metric_topic",
+            default_value="/target_metric",
+            description="Topic name for the target RMP metric.",
+        ),
+        DeclareLaunchArgument(
+            "use_rmpflow_trace_logger",
+            default_value="true",
+            description="Start a trace logger that records RMP inputs, sensor ranges, metrics, and commands.",
+        ),
+        DeclareLaunchArgument(
+            "rmpflow_trace_log_rate",
+            default_value="1.0",
+            description="Trace logger snapshot rate in Hz.",
+        ),
+        DeclareLaunchArgument(
+            "rmpflow_trace_log_directory",
+            default_value=os.path.expanduser("~/ros2_ws/log/rmpflow_trace"),
+            description="Directory for RMPFlow trace CSV logs.",
+        ),
+        DeclareLaunchArgument(
+            "rmpflow_trace_console_summary",
+            default_value="true",
+            description="Print one-line trace summaries to the launch terminal.",
         ),
         DeclareLaunchArgument(
             "record_data",
@@ -725,9 +780,9 @@ def generate_launch_description():
         rmpflow_bridge,
         data_recorder,
         joint_velocity_logger,
+        rmpflow_trace_logger,
         interactive_goal,
         obstacle_manager,
         proximity_obstacle_bridge,
-        tof_ray_visualizer,
         rviz,
     ])

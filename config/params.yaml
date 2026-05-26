@@ -2,7 +2,83 @@
 
 rmpflow_controller:
   ros__parameters:
-    control_rate: 50.0
+      # RMP solver common
+    root_solve_offset: 0.001
+
+    # Collision RMP
+    collision_rmp_margin: 0.0
+    collision_rmp_damping_gain: 100.0
+    collision_rmp_damping_std_dev: 0.01
+    collision_rmp_damping_robustness_eps: 0.01
+    collision_rmp_damping_velocity_gate_length_scale: 0.01
+    collision_rmp_repulsion_gain: 2000.0
+    collision_rmp_repulsion_std_dev: 0.05
+    collision_rmp_metric_modulation_radius: 0.3
+    # collision_rmp_metric_scalar: 0.0
+    collision_rmp_metric_scalar: 100000.0
+    collision_rmp_metric_exploder_std_dev: 0.01
+    collision_rmp_metric_exploder_eps: 0.1
+
+    # Target RMP
+    target_rmp_accel_p_gain: 80.0
+    target_rmp_accel_d_gain: 120.0
+    target_rmp_accel_norm_eps: 0.08
+    target_rmp_metric_alpha_length_scale: 0.01
+    target_rmp_min_metric_alpha: 0.1
+    target_rmp_max_metric_scalar: 100000.0
+    target_rmp_min_metric_scalar: 25000.0
+    target_rmp_proximity_metric_boost_scalar: 2.0
+    target_rmp_proximity_metric_boost_length_scale: 0.02
+
+    # Axis Target RMP
+    axis_target_rmp_accel_p_gain: 50.0
+    axis_target_rmp_accel_d_gain: 50.0
+    axis_target_rmp_metric_scalar: 1000.0
+    axis_target_rmp_proximity_metric_boost_scalar: 10.0
+    axis_target_rmp_proximity_metric_boost_length_scale: 0.01
+
+    # Wrist-only Axis Target RMP
+    wrist_axis_target_rmp_accel_p_gain: 100.0
+    wrist_axis_target_rmp_accel_d_gain: 50.0
+    wrist_axis_target_rmp_metric_scalar: 0.0
+    wrist_axis_target_rmp_proximity_metric_boost_scalar: 1.0
+    wrist_axis_target_rmp_proximity_metric_boost_length_scale: 0.01
+
+    # Damping RMP
+    damping_rmp_accel_d_gain: 50.0
+    damping_rmp_metric_scalar: 100.0
+    damping_rmp_inertia: 100.0
+
+    # C-space Target RMP
+    cspace_target_metric_scalar: 0.0
+    cspace_target_position_gain: 25.0
+    cspace_target_damping_gain: 18.0
+    cspace_target_robust_position_term_thresh: 0.5
+    cspace_target_inertia: 0.0
+
+    # Joint Limit RMP
+    joint_limit_metric_scalar: 1000.0
+    joint_limit_metric_length_scale: 0.1
+    joint_limit_metric_exploder_eps: 0.001
+    joint_limit_metric_velocity_gate_length_scale: 0.01
+    joint_limit_accel_damper_gain: 100.0
+    joint_limit_accel_potential_gain: 100.0
+    joint_limit_accel_potential_exploder_eps: 0.001
+    joint_limit_accel_potential_exploder_length_scale: 0.01
+
+    # Joint Velocity Cap RMP
+    joint_velocity_cap_max_velocity: 2.0
+    joint_velocity_cap_velocity_damping_region: 0.5
+    joint_velocity_cap_damping_gain: 500.0
+    joint_velocity_cap_metric_weight: 100.0
+
+    # Command limits
+    max_joint_accel: 20.0
+    command_guard_max_velocity_rad_s: 2.5
+
+
+
+    control_rate: 100.0
     estimate_velocity_in_controller: false
     controller_velocity_filter_alpha: 0.5
     use_synced_input_velocity_filter: true
@@ -14,12 +90,20 @@ rmpflow_controller:
     measured_position_feedback_blend: 0.5
     measured_velocity_feedback_blend: 1.0
     visualization_rate: 20.0
+    publish_repulsion_metric_markers: true
+    repulsion_metric_marker_min_norm: 0.01
+    repulsion_metric_marker_dot_diameter: 0.04
+    publish_tcp_accel_marker: true
+    tcp_accel_marker_topic: "tcp_accel_marker"
+    tcp_accel_marker_max_length: 0.15
+    tcp_accel_marker_norm_for_max_length: 2.0
+    tcp_accel_marker_min_norm: 0.001
     goal_x: 0.6
     goal_y: -0.4
     goal_z: 0.6
     min_goal_z: 0.05
     initialize_goal_from_first_state: true
-    safety_stop_on_min_z: true
+    safety_stop_on_min_z: false
     workspace_floor_z: 0.0
     min_link6_z: 0.03
     min_tcp_z: 0.05
@@ -54,9 +138,6 @@ rmpflow_controller:
         - collision
         - damping
         - body_link4
-        - tcp_orientation_x
-        - tcp_orientation_y
-        - tcp_orientation_z
         - tcp_axis_target_x
         - tcp_axis_target_y
         - tcp_axis_target_z
@@ -159,39 +240,6 @@ rmpflow_controller:
         axis: "z"
         handcrafted_leaf: none
         identity_multiplier: 0.0
-      tcp_orientation_x:
-        parents: [root]
-        parent: root
-        task_map: link_orientation_axis
-        leaf: orientation_target
-        enabled: false
-        target_key: orientation_goal_x
-        link_name: tcp_rmp
-        axis: "x"
-        handcrafted_leaf: none
-        identity_multiplier: 0.0
-      tcp_orientation_y:
-        parents: [root]
-        parent: root
-        task_map: link_orientation_axis
-        leaf: orientation_target
-        enabled: false
-        target_key: orientation_goal_y
-        link_name: tcp_rmp
-        axis: "y"
-        handcrafted_leaf: none
-        identity_multiplier: 0.0
-      tcp_orientation_z:
-        parents: [root]
-        parent: root
-        task_map: link_orientation_axis
-        leaf: orientation_target
-        enabled: false
-        target_key: orientation_goal_z
-        link_name: tcp_rmp
-        axis: "z"
-        handcrafted_leaf: none
-        identity_multiplier: 0.0
       tcp_axis_target_x:
         parents: [root]
         parent: root
@@ -219,82 +267,12 @@ rmpflow_controller:
         parent: root
         task_map: link_orientation_axis
         leaf: axis_target
-        enabled: false
+        enabled: true
         target_key: orientation_goal_z
         link_name: tcp_rmp
         axis: "z"
         handcrafted_leaf: none
         identity_multiplier: 0.0
-    # RMP solver common
-    root_solve_offset: 0.001
-
-    # Collision RMP
-    collision_rmp_margin: 0.0
-    collision_rmp_damping_gain: 20.0
-    collision_rmp_damping_std_dev: 0.01
-    collision_rmp_damping_robustness_eps: 0.01
-    collision_rmp_damping_velocity_gate_length_scale: 0.01
-    collision_rmp_repulsion_gain: 100.0
-    collision_rmp_repulsion_std_dev: 0.05
-    collision_rmp_metric_modulation_radius: 5.0
-    collision_rmp_metric_scalar: 2500000.0
-    collision_rmp_metric_exploder_std_dev: 0.01
-    collision_rmp_metric_exploder_eps: 1.0
-
-    # Target RMP
-    target_rmp_accel_p_gain: 50.0
-    target_rmp_accel_d_gain: 20.0
-    target_rmp_accel_norm_eps: 0.08
-    target_rmp_metric_alpha_length_scale: 0.01
-    target_rmp_min_metric_alpha: 0.1
-    target_rmp_max_metric_scalar: 100000.0
-    target_rmp_min_metric_scalar: 25000.0
-    target_rmp_proximity_metric_boost_scalar: 1.0
-    target_rmp_proximity_metric_boost_length_scale: 0.02
-
-    # Axis Target RMP
-    axis_target_rmp_accel_p_gain: 50.0
-    axis_target_rmp_accel_d_gain: 20.0
-    axis_target_rmp_metric_scalar: 5000.0
-    axis_target_rmp_proximity_metric_boost_scalar: 10.0
-    axis_target_rmp_proximity_metric_boost_length_scale: 0.01
-
-    # Orientation RMP
-    orientation_rmp_accel_p_gain: 1000.0
-    orientation_rmp_accel_d_gain: 100.0
-    orientation_rmp_metric_scalar: 0.0
-
-    # Damping RMP
-    damping_rmp_accel_d_gain: 50.0
-    damping_rmp_metric_scalar: 0.0
-    damping_rmp_inertia: 0.0
-
-    # C-space Target RMP
-    cspace_target_metric_scalar: 0.0
-    cspace_target_position_gain: 25.0
-    cspace_target_damping_gain: 18.0
-    cspace_target_robust_position_term_thresh: 0.5
-    cspace_target_inertia: 0.0
-
-    # Joint Limit RMP
-    joint_limit_metric_scalar: 0.0
-    joint_limit_metric_length_scale: 0.01
-    joint_limit_metric_exploder_eps: 0.001
-    joint_limit_metric_velocity_gate_length_scale: 0.01
-    joint_limit_accel_damper_gain: 200.0
-    joint_limit_accel_potential_gain: 1.0
-    joint_limit_accel_potential_exploder_eps: 0.01
-    joint_limit_accel_potential_exploder_length_scale: 0.1
-
-    # Joint Velocity Cap RMP
-    joint_velocity_cap_max_velocity: 1.75
-    joint_velocity_cap_velocity_damping_region: 0.05
-    joint_velocity_cap_damping_gain: 18.0
-    joint_velocity_cap_metric_weight: 0.0
-
-    # Command limits
-    max_joint_accel: 20.0
-    command_guard_max_velocity_rad_s: 2.5
 
     # Robot body guard obstacles
     body_obstacles:
@@ -535,7 +513,41 @@ proximity_obstacle_bridge:
     range_scale: 0.001
     minimum_hold_distance: 0.05
     trigger_distance: 0.3
+    enable_proximity_distance_1_4: true
+    sensor_enabled:
+      - true   # proximity_distance1 -> tof6_1_L
+      - true   # proximity_distance2 -> tof6_1_F
+      - true   # proximity_distance3 -> tof6_1_R
+      - true   # proximity_distance4 -> tof6_1_U
+      - false   # proximity_distance6 -> tof_S
+      - false   # proximity_distance7 -> tof_E
+      - false   # proximity_distance8 -> tof_N
+      - false   # proximity_distance5 -> tof_W
+      - false   # proximity_distance12 -> tof3_1_S
+      - false   # proximity_distance9 -> tof3_1_W
+      - false   # proximity_distance10 -> tof3_1_N
+      - false  # proximity_distance11 -> tof3_1_E
+      - false  # proximity_distance13 -> tof2_1_E
+      - false   # proximity_distance14 -> tof2_1_S
+      - false   # proximity_distance15 -> tof2_1_W
+      - false  # proximity_distance16 -> tof2_1_N
+      - false # proximity_distance17 -> tof2_E
+      - false  # proximity_distance18 -> tof2_S
+      - false   # proximity_distance19 -> tof2_W
+      - false  # proximity_distance20 -> tof2_N
     trigger_distances:
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
+      - 0.3
       - 0.3
       - 0.3
       - 0.3
@@ -549,24 +561,60 @@ proximity_obstacle_bridge:
       - "proximity_distance2"
       - "proximity_distance3"
       - "proximity_distance4"
+      - "proximity_distance6"
+      - "proximity_distance7"
+      - "proximity_distance8"
+      - "proximity_distance5"
+      - "proximity_distance12"
       - "proximity_distance9"
       - "proximity_distance10"
       - "proximity_distance11"
-      - "proximity_distance12"
+      - "proximity_distance13"
+      - "proximity_distance14"
+      - "proximity_distance15"
+      - "proximity_distance16"
+      - "proximity_distance17"
+      - "proximity_distance18"
+      - "proximity_distance19"
+      - "proximity_distance20"
     sensor_frames:
-      - "tof_E"
-      - "tof_S"
-      - "tof_W"
-      - "tof_N"
       - "tof6_1_L"
       - "tof6_1_F"
       - "tof6_1_R"
       - "tof6_1_U"
+      - "tof_S"
+      - "tof_E"
+      - "tof_N"
+      - "tof_W"
+      - "tof3_1_S"
+      - "tof3_1_W"
+      - "tof3_1_N"
+      - "tof3_1_E"
+      - "tof2_1_E"
+      - "tof2_1_S"
+      - "tof2_1_W"
+      - "tof2_1_N"
+      - "tof2_E"
+      - "tof2_S"
+      - "tof2_W"
+      - "tof2_N"
     obstacle_radii:
-      - 0.08
-      - 0.08
-      - 0.08
-      - 0.08
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
+      - 0.04
       - 0.04
       - 0.04
       - 0.04

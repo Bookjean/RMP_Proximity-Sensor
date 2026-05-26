@@ -71,6 +71,13 @@ struct RobotState
   JointVector qd{JointVector::Zero()};
 };
 
+struct TcpAccelerationSample
+{
+  std::array<double, 3> acceleration{0.0, 0.0, 0.0};
+  double norm{0.0};
+  bool valid{false};
+};
+
 class SynchronizedVelocityFilter
 {
 public:
@@ -966,8 +973,19 @@ public:
     declare_parameter("position_command_topic", "position_controllers/commands");
     declare_parameter("publish_target_q", false);
     declare_parameter("target_q_topic", "/target_q");
+    declare_parameter("publish_target_metric", false);
+    declare_parameter("target_metric_topic", "/target_metric");
     declare_parameter("publish_joint_states", true);
     declare_parameter("publish_visualization", true);
+    declare_parameter("publish_repulsion_metric_markers", true);
+    declare_parameter("repulsion_metric_marker_topic", "repulsion_metric_markers");
+    declare_parameter("repulsion_metric_marker_min_norm", 0.01);
+    declare_parameter("repulsion_metric_marker_dot_diameter", 0.04);
+    declare_parameter("publish_tcp_accel_marker", true);
+    declare_parameter("tcp_accel_marker_topic", "tcp_accel_marker");
+    declare_parameter("tcp_accel_marker_max_length", 0.15);
+    declare_parameter("tcp_accel_marker_norm_for_max_length", 2.0);
+    declare_parameter("tcp_accel_marker_min_norm", 0.001);
     declare_parameter("publish_rmp_ee_pose", true);
     declare_parameter("publish_goal_tf", true);
     declare_parameter("goal_tf_parent_frame", "base_link");
@@ -1036,14 +1054,16 @@ public:
     declare_parameter("target_rmp_min_metric_scalar", 0.5);
     declare_parameter("target_rmp_proximity_metric_boost_scalar", 3.0);
     declare_parameter("target_rmp_proximity_metric_boost_length_scale", 0.02);
-    declare_parameter("orientation_rmp_accel_p_gain", 6.0);
-    declare_parameter("orientation_rmp_accel_d_gain", 10.0);
-    declare_parameter("orientation_rmp_metric_scalar", 0.08);
     declare_parameter("axis_target_rmp_accel_p_gain", 1000.0);
     declare_parameter("axis_target_rmp_accel_d_gain", 500.0);
     declare_parameter("axis_target_rmp_metric_scalar", 50.0);
     declare_parameter("axis_target_rmp_proximity_metric_boost_scalar", 10.0);
     declare_parameter("axis_target_rmp_proximity_metric_boost_length_scale", 0.1);
+    declare_parameter("wrist_axis_target_rmp_accel_p_gain", 50.0);
+    declare_parameter("wrist_axis_target_rmp_accel_d_gain", 50.0);
+    declare_parameter("wrist_axis_target_rmp_metric_scalar", 1000.0);
+    declare_parameter("wrist_axis_target_rmp_proximity_metric_boost_scalar", 1.0);
+    declare_parameter("wrist_axis_target_rmp_proximity_metric_boost_length_scale", 0.01);
     declare_parameter("collision_rmp_margin", 0.0);
     declare_parameter("collision_rmp_damping_gain", 50.0);
     declare_parameter("collision_rmp_damping_std_dev", 0.04);
@@ -1114,13 +1134,32 @@ public:
     declare_graph_parameters();
     declare_body_obstacle_parameters();
     obstacles_box_.set(std::vector<ObstacleSphere>{ObstacleSphere{}});
+    proximity_sensor_obstacles_box_.set(
+      std::vector<std::optional<ObstacleSphere>>(RB10Model::sensor_control_points.size()));
+    tcp_accel_visualization_box_.set(TcpAccelerationSample{});
     const auto solver_config = build_solver_config();
+    target_metric_params_ = solver_config.target;
+    collision_metric_params_ = solver_config.collision;
     configure_external_rmp_inputs(solver_config.graph_nodes);
     solver_ = build_solver(solver_config);
     body_obstacles_visual_ = solver_config.body_obstacles;
 
     publish_joint_states_enabled_ = get_parameter("publish_joint_states").as_bool();
     publish_visualization_enabled_ = get_parameter("publish_visualization").as_bool();
+    publish_repulsion_metric_markers_enabled_ =
+      get_parameter("publish_repulsion_metric_markers").as_bool();
+    repulsion_metric_marker_min_norm_ = std::clamp(
+      get_parameter("repulsion_metric_marker_min_norm").as_double(), 0.0, 1.0);
+    repulsion_metric_marker_dot_diameter_ = std::max(
+      get_parameter("repulsion_metric_marker_dot_diameter").as_double(), 0.005);
+    publish_tcp_accel_marker_enabled_ =
+      get_parameter("publish_tcp_accel_marker").as_bool();
+    tcp_accel_marker_max_length_ = std::max(
+      get_parameter("tcp_accel_marker_max_length").as_double(), 0.01);
+    tcp_accel_marker_norm_for_max_length_ = std::max(
+      get_parameter("tcp_accel_marker_norm_for_max_length").as_double(), 1e-9);
+    tcp_accel_marker_min_norm_ = std::max(
+      get_parameter("tcp_accel_marker_min_norm").as_double(), 0.0);
     publish_rmp_ee_pose_enabled_ = get_parameter("publish_rmp_ee_pose").as_bool();
     publish_goal_tf_enabled_ = get_parameter("publish_goal_tf").as_bool();
     goal_tf_parent_frame_ = get_parameter("goal_tf_parent_frame").as_string();
@@ -1143,12 +1182,25 @@ public:
         get_parameter("target_q_topic").as_string(), 10);
       rt_target_q_pub_ = std::make_shared<Float64ArrayRtPublisher>(target_q_pub_);
     }
+    if (get_parameter("publish_target_metric").as_bool()) {
+      target_metric_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(
+        get_parameter("target_metric_topic").as_string(), 10);
+      rt_target_metric_pub_ = std::make_shared<Float64ArrayRtPublisher>(target_metric_pub_);
+    }
     if (publish_visualization_enabled_) {
       goal_marker_pub_ = create_publisher<visualization_msgs::msg::Marker>("goal_marker", 10);
       control_point_pub_ =
         create_publisher<visualization_msgs::msg::MarkerArray>("control_points", 10);
       body_obstacle_pub_ =
         create_publisher<visualization_msgs::msg::MarkerArray>("body_obstacle_markers", 10);
+      if (publish_repulsion_metric_markers_enabled_) {
+        repulsion_metric_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+          get_parameter("repulsion_metric_marker_topic").as_string(), 10);
+      }
+      if (publish_tcp_accel_marker_enabled_) {
+        tcp_accel_pub_ = create_publisher<visualization_msgs::msg::Marker>(
+          get_parameter("tcp_accel_marker_topic").as_string(), 10);
+      }
       eef_pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("end_effector_pose", 10);
       debug_state_pub_ =
         create_publisher<std_msgs::msg::Float64MultiArray>("rmp_debug_state", 10);
@@ -1276,6 +1328,11 @@ private:
   void on_rmp_flag(const std_msgs::msg::UInt8::SharedPtr msg)
   {
     const bool requested_active = static_cast<int>(msg->data) == rmp_active_flag_value_;
+    RCLCPP_INFO(
+      get_logger(),
+      "Received controller /RMP_flag: %d -> active=%s",
+      static_cast<int>(msg->data),
+      requested_active ? "true" : "false");
     rmp_active_.store(requested_active);
     if (!requested_active) {
       virtual_velocity_state_initialized_ = false;
@@ -1315,6 +1372,16 @@ private:
     } else {
       next_goal.orientation = goal_orientation.normalized();
     }
+    RCLCPP_INFO(
+      get_logger(),
+      "Received controller /goal_pose: position=(%.4f, %.4f, %.4f), orientation=(%.4f, %.4f, %.4f, %.4f)",
+      msg->pose.position.x,
+      msg->pose.position.y,
+      msg->pose.position.z,
+      msg->pose.orientation.x,
+      msg->pose.orientation.y,
+      msg->pose.orientation.z,
+      msg->pose.orientation.w);
     goal_target_box_.set(next_goal);
     external_goal_received_.store(true);
     startup_goal_synced_.store(true);
@@ -1323,22 +1390,49 @@ private:
   void on_obstacles(const visualization_msgs::msg::MarkerArray::SharedPtr msg)
   {
     std::vector<ObstacleSphere> obstacles;
+    std::vector<std::optional<ObstacleSphere>> proximity_sensor_obstacles(
+      RB10Model::sensor_control_points.size());
     for (const auto & marker : msg->markers) {
+      const auto proximity_control_point_index = proximity_marker_control_point_index(marker);
       if (marker.action != visualization_msgs::msg::Marker::ADD) {
         continue;
       }
-      obstacles.push_back(ObstacleSphere{
+      ObstacleSphere obstacle{
         Eigen::Vector3d(
           marker.pose.position.x,
           marker.pose.position.y,
           marker.pose.position.z),
         marker.scale.x * 0.5
-      });
+      };
+      obstacles.push_back(obstacle);
+      if (proximity_control_point_index.has_value()) {
+        proximity_sensor_obstacles[proximity_control_point_index.value()] = obstacle;
+      }
     }
     if (obstacles.empty()) {
       obstacles.push_back(ObstacleSphere{});
     }
     obstacles_box_.set(obstacles);
+    proximity_sensor_obstacles_box_.set(proximity_sensor_obstacles);
+  }
+
+  std::optional<std::size_t> proximity_marker_control_point_index(
+    const visualization_msgs::msg::Marker & marker) const
+  {
+    if (marker.ns != "proximity_obstacles") {
+      return std::nullopt;
+    }
+
+    if (!marker.text.empty()) {
+      for (std::size_t index = 0; index < RB10Model::sensor_control_points.size(); ++index) {
+        if (marker.text == RB10Model::sensor_control_points[index].frame_name) {
+          return index;
+        }
+      }
+      return std::nullopt;
+    }
+
+    return std::nullopt;
   }
 
   EigenRmpConfig build_solver_config() const
@@ -1407,12 +1501,6 @@ private:
       get_parameter("target_rmp_proximity_metric_boost_scalar").as_double();
     config.target.proximity_metric_boost_length_scale =
       get_parameter("target_rmp_proximity_metric_boost_length_scale").as_double();
-    config.orientation.accel_p_gain =
-      get_parameter("orientation_rmp_accel_p_gain").as_double();
-    config.orientation.accel_d_gain =
-      get_parameter("orientation_rmp_accel_d_gain").as_double();
-    config.orientation.metric_scalar =
-      get_parameter("orientation_rmp_metric_scalar").as_double();
     config.axis_target.accel_p_gain =
       get_parameter("axis_target_rmp_accel_p_gain").as_double();
     config.axis_target.accel_d_gain =
@@ -1423,6 +1511,16 @@ private:
       get_parameter("axis_target_rmp_proximity_metric_boost_scalar").as_double();
     config.axis_target.proximity_metric_boost_length_scale =
       get_parameter("axis_target_rmp_proximity_metric_boost_length_scale").as_double();
+    config.wrist_axis_target.accel_p_gain =
+      get_parameter("wrist_axis_target_rmp_accel_p_gain").as_double();
+    config.wrist_axis_target.accel_d_gain =
+      get_parameter("wrist_axis_target_rmp_accel_d_gain").as_double();
+    config.wrist_axis_target.metric_scalar =
+      get_parameter("wrist_axis_target_rmp_metric_scalar").as_double();
+    config.wrist_axis_target.proximity_metric_boost_scalar =
+      get_parameter("wrist_axis_target_rmp_proximity_metric_boost_scalar").as_double();
+    config.wrist_axis_target.proximity_metric_boost_length_scale =
+      get_parameter("wrist_axis_target_rmp_proximity_metric_boost_length_scale").as_double();
 
     config.collision.margin = get_parameter("collision_rmp_margin").as_double();
     config.collision.damping_gain = get_parameter("collision_rmp_damping_gain").as_double();
@@ -1979,6 +2077,264 @@ private:
     debug_state_pub_->publish(debug);
   }
 
+  struct RepulsionMetricSample
+  {
+    Eigen::Vector3d control_point{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d direction{Eigen::Vector3d::UnitZ()};
+    double clearance{0.0};
+    double metric_norm{0.0};
+    double effective_metric_norm{0.0};
+    double repulsion_norm{0.0};
+    double intensity_norm{0.0};
+  };
+
+  static double sigmoid(double value)
+  {
+    if (value >= 0.0) {
+      const double exp_value = std::exp(-value);
+      return 1.0 / (1.0 + exp_value);
+    }
+    const double exp_value = std::exp(value);
+    return exp_value / (1.0 + exp_value);
+  }
+
+  static geometry_msgs::msg::Point to_point(const Eigen::Vector3d & value)
+  {
+    geometry_msgs::msg::Point point;
+    point.x = value.x();
+    point.y = value.y();
+    point.z = value.z();
+    return point;
+  }
+
+  static std_msgs::msg::ColorRGBA repulsion_metric_color(double metric_norm)
+  {
+    const double clamped_metric = std::clamp(metric_norm, 0.0, 1.0);
+    std_msgs::msg::ColorRGBA color;
+    color.r = static_cast<float>(std::min(1.0, 2.0 * clamped_metric));
+    color.g = static_cast<float>(std::min(1.0, 2.0 * (1.0 - clamped_metric)));
+    color.b = 0.05F;
+    color.a = static_cast<float>(0.35 + 0.65 * clamped_metric);
+    return color;
+  }
+
+  std::optional<RepulsionMetricSample> make_repulsion_metric_sample(
+    const ControlPoint & control_point,
+    const Eigen::Vector3d & control_point_velocity,
+    const ObstacleSphere & obstacle) const
+  {
+    if (obstacle.radius <= 0.0) {
+      return std::nullopt;
+    }
+
+    const Eigen::Vector3d delta = control_point.position - obstacle.center;
+    const double center_distance = delta.norm();
+    Eigen::Vector3d direction = Eigen::Vector3d::UnitZ();
+    if (center_distance > 1e-9) {
+      direction = delta / center_distance;
+    }
+    const double clearance = std::max(
+      center_distance - (control_point.radius + obstacle.radius) -
+      collision_metric_params_.margin,
+      0.0);
+    const double clearance_velocity = direction.dot(control_point_velocity);
+
+    const double metric_radius =
+      std::max(collision_metric_params_.metric_modulation_radius, 1e-9);
+    const double metric_exploder_std_dev =
+      std::max(collision_metric_params_.metric_exploder_std_dev, 1e-9);
+    const double metric_exploder_eps =
+      std::max(collision_metric_params_.metric_exploder_eps, 1e-9);
+    const double metric_normalizer =
+      std::max(std::abs(collision_metric_params_.metric_scalar) / metric_exploder_eps, 1e-9);
+
+    double metric_gate =
+      clearance * clearance / (metric_radius * metric_radius) -
+      2.0 * clearance / metric_radius + 1.0;
+    if (clearance > metric_radius) {
+      metric_gate = 0.0;
+    }
+
+    const double distance_metric =
+      collision_metric_params_.metric_scalar /
+      (clearance / metric_exploder_std_dev + metric_exploder_eps) *
+      metric_gate;
+    const double velocity_gate_scale =
+      std::max(collision_metric_params_.damping_velocity_gate_length_scale, 1e-9);
+    const double sigma = sigmoid(clearance_velocity / velocity_gate_scale);
+    const double effective_metric = clearance > metric_radius ?
+      0.0 :
+      distance_metric * (1.0 - sigma);
+
+    const double repulsion_std_dev =
+      std::max(collision_metric_params_.repulsion_std_dev, 1e-9);
+    const double repulsion_norm =
+      std::clamp(std::exp(-(clearance / repulsion_std_dev)), 0.0, 1.0);
+    const double repel = collision_metric_params_.repulsion_gain * repulsion_norm;
+    const double damping =
+      -(1.0 - sigma) * collision_metric_params_.damping_gain * clearance_velocity /
+      (clearance / std::max(collision_metric_params_.damping_std_dev, 1e-9) +
+      std::max(collision_metric_params_.damping_robustness_eps, 1e-9));
+    const double accel_normalizer =
+      std::max(std::abs(collision_metric_params_.repulsion_gain), 1e-9);
+    const double accel_norm =
+      std::clamp(std::max(repel + damping, 0.0) / accel_normalizer, 0.0, 1.0);
+    const double metric_norm =
+      std::clamp(distance_metric / metric_normalizer, 0.0, 1.0);
+    const double effective_metric_norm =
+      std::clamp(effective_metric / metric_normalizer, 0.0, 1.0);
+    const double intensity_norm =
+      std::clamp(std::sqrt(effective_metric_norm * accel_norm), 0.0, 1.0);
+
+    return RepulsionMetricSample{
+      control_point.position,
+      direction,
+      clearance,
+      metric_norm,
+      effective_metric_norm,
+      repulsion_norm,
+      intensity_norm
+    };
+  }
+
+  void publish_repulsion_metric_markers(
+    const RobotState & state,
+    const KinematicsContext & context)
+  {
+    if (!repulsion_metric_pub_) {
+      return;
+    }
+
+    std::vector<std::optional<ObstacleSphere>> proximity_sensor_obstacles;
+    proximity_sensor_obstacles_box_.get(proximity_sensor_obstacles);
+
+    visualization_msgs::msg::MarkerArray markers;
+    const auto stamp = now();
+    visualization_msgs::msg::Marker clear_marker;
+    clear_marker.header.frame_id = "base_link";
+    clear_marker.header.stamp = stamp;
+    clear_marker.action = visualization_msgs::msg::Marker::DELETEALL;
+    markers.markers.push_back(clear_marker);
+
+    int marker_id = 0;
+    for (std::size_t point_index = 0; point_index < context.control_points.size(); ++point_index) {
+      if (
+        point_index >= proximity_sensor_obstacles.size() ||
+        !proximity_sensor_obstacles[point_index].has_value())
+      {
+        continue;
+      }
+
+      const auto & control_point = context.control_points[point_index];
+      Eigen::Vector3d control_point_velocity = Eigen::Vector3d::Zero();
+      if (point_index < context.control_point_jacobians.size()) {
+        control_point_velocity = context.control_point_jacobians[point_index] * state.qd;
+      }
+
+      auto sample = make_repulsion_metric_sample(
+        control_point,
+        control_point_velocity,
+        proximity_sensor_obstacles[point_index].value());
+      if (
+        !sample.has_value() ||
+        sample->metric_norm < repulsion_metric_marker_min_norm_)
+      {
+        continue;
+      }
+
+      const double metric_norm = std::max(sample->metric_norm, sample->effective_metric_norm);
+
+      visualization_msgs::msg::Marker sensor_marker;
+      sensor_marker.header.frame_id = "base_link";
+      sensor_marker.header.stamp = stamp;
+      sensor_marker.ns = "repulsion_metric_dots";
+      sensor_marker.id = marker_id++;
+      sensor_marker.type = visualization_msgs::msg::Marker::SPHERE;
+      sensor_marker.action = visualization_msgs::msg::Marker::ADD;
+      sensor_marker.pose.position = to_point(sample->control_point);
+      sensor_marker.pose.orientation.w = 1.0;
+      sensor_marker.scale.x = repulsion_metric_marker_dot_diameter_;
+      sensor_marker.scale.y = repulsion_metric_marker_dot_diameter_;
+      sensor_marker.scale.z = repulsion_metric_marker_dot_diameter_;
+      sensor_marker.color = repulsion_metric_color(metric_norm);
+      markers.markers.push_back(sensor_marker);
+    }
+
+    repulsion_metric_pub_->publish(markers);
+  }
+
+  void update_tcp_accel_visualization(
+    const RobotState & state,
+    const JointVector & qdd)
+  {
+    const auto context = RB10Model::forward_context(state.q);
+    const Eigen::Vector3d tcp_accel = context.tcp_jacobian * qdd + context.tcp_curvature;
+
+    TcpAccelerationSample sample;
+    sample.acceleration = {tcp_accel.x(), tcp_accel.y(), tcp_accel.z()};
+    sample.norm = tcp_accel.norm();
+    sample.valid = true;
+    tcp_accel_visualization_box_.set(sample);
+  }
+
+  void clear_tcp_accel_visualization_sample()
+  {
+    tcp_accel_visualization_box_.set(TcpAccelerationSample{});
+  }
+
+  void publish_tcp_accel_marker(const KinematicsContext & context)
+  {
+    if (!tcp_accel_pub_) {
+      return;
+    }
+
+    TcpAccelerationSample sample;
+    tcp_accel_visualization_box_.get(sample);
+
+    visualization_msgs::msg::Marker marker;
+    marker.header.frame_id = "base_link";
+    marker.header.stamp = now();
+    marker.ns = "tcp_accel";
+    marker.id = 0;
+
+    if (!sample.valid || sample.norm < tcp_accel_marker_min_norm_) {
+      marker.action = visualization_msgs::msg::Marker::DELETE;
+      tcp_accel_pub_->publish(marker);
+      return;
+    }
+
+    Eigen::Vector3d acceleration(
+      sample.acceleration[0],
+      sample.acceleration[1],
+      sample.acceleration[2]);
+    const double acceleration_norm = acceleration.norm();
+    if (acceleration_norm < std::numeric_limits<double>::epsilon()) {
+      marker.action = visualization_msgs::msg::Marker::DELETE;
+      tcp_accel_pub_->publish(marker);
+      return;
+    }
+
+    const double normalized_length =
+      std::clamp(acceleration_norm / tcp_accel_marker_norm_for_max_length_, 0.0, 1.0);
+    const double visible_length =
+      tcp_accel_marker_max_length_ * std::max(normalized_length, 0.15);
+    const Eigen::Vector3d start = context.tcp_position;
+    const Eigen::Vector3d end = start + acceleration.normalized() * visible_length;
+
+    marker.type = visualization_msgs::msg::Marker::ARROW;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.points.push_back(to_point(start));
+    marker.points.push_back(to_point(end));
+    marker.scale.x = 0.01;
+    marker.scale.y = 0.03;
+    marker.scale.z = std::clamp(visible_length * 0.35, 0.015, 0.045);
+    marker.color.r = 0.05F;
+    marker.color.g = 0.85F;
+    marker.color.b = 1.0F;
+    marker.color.a = 0.9F;
+    tcp_accel_pub_->publish(marker);
+  }
+
   JointVector compute_acceleration(
     const RobotState & state,
     const Eigen::Vector3d & goal,
@@ -2088,6 +2444,53 @@ private:
     rmp_eef_pose_pub_->publish(pose);
   }
 
+  void publish_target_metric(const RobotState & state, const Eigen::Vector3d & goal)
+  {
+    if (!target_metric_pub_) {
+      return;
+    }
+
+    const auto context = RB10Model::forward_context(state.q);
+    const Eigen::Vector3d delta = goal - context.tcp_position;
+    const double delta_norm = delta.norm();
+    const double soft_delta_norm =
+      std::max(delta_norm, target_metric_params_.accel_norm_eps / 10.0);
+    const Eigen::Vector3d delta_hat = delta / soft_delta_norm;
+
+    const Eigen::Matrix3d eye = Eigen::Matrix3d::Identity();
+    const Eigen::Matrix3d shape = delta_hat * delta_hat.transpose();
+    const double scaled_dist = delta_norm / target_metric_params_.metric_alpha_length_scale;
+    const double alpha =
+      (1.0 - target_metric_params_.min_metric_alpha) *
+      std::exp(-0.5 * scaled_dist * scaled_dist) +
+      target_metric_params_.min_metric_alpha;
+    Eigen::Matrix3d leaf_metric =
+      alpha * target_metric_params_.max_metric_scalar * eye +
+      (1.0 - alpha) * target_metric_params_.min_metric_scalar * shape;
+
+    const double boost_scaled_dist =
+      delta_norm / target_metric_params_.proximity_metric_boost_length_scale;
+    const double boost_alpha = std::exp(-0.5 * boost_scaled_dist * boost_scaled_dist);
+    const double metric_boost_scalar =
+      boost_alpha * target_metric_params_.proximity_metric_boost_scalar +
+      (1.0 - boost_alpha);
+    leaf_metric *= metric_boost_scalar;
+
+    std_msgs::msg::Float64MultiArray metric_msg;
+    metric_msg.data.reserve(9);
+    for (int row = 0; row < 3; ++row) {
+      for (int col = 0; col < 3; ++col) {
+        metric_msg.data.push_back(leaf_metric(row, col));
+      }
+    }
+
+    if (rt_target_metric_pub_) {
+      rt_target_metric_pub_->tryPublish(metric_msg);
+      return;
+    }
+    target_metric_pub_->publish(metric_msg);
+  }
+
   void publish_goal_tf(const GoalTarget & goal_target)
   {
     if (!goal_tf_broadcaster_ || goal_tf_parent_frame_.empty() || goal_tf_child_frame_.empty()) {
@@ -2182,6 +2585,7 @@ private:
       if (!backend_->ready()) {
         virtual_velocity_state_initialized_ = false;
         last_safe_command_state_initialized_ = false;
+        clear_tcp_accel_visualization_sample();
         reset_controller_velocity_estimator();
         RCLCPP_INFO_THROTTLE(
           get_logger(),
@@ -2204,6 +2608,7 @@ private:
       if (rmp_flag_gate_enabled_ && !rmp_active_.load()) {
         virtual_velocity_state_initialized_ = false;
         last_safe_command_state_initialized_ = false;
+        clear_tcp_accel_visualization_sample();
         state_ = measured_state;
         if (estimate_velocity_in_controller_) {
           state_.qd = measured_state.qd;
@@ -2212,6 +2617,9 @@ private:
           publish_joint_states(state_);
         }
         publish_rmp_ee_pose(measured_context);
+        GoalTarget goal_target;
+        goal_target_box_.get(goal_target);
+        publish_target_metric(measured_state, goal_target.position);
         RCLCPP_INFO_THROTTLE(
           get_logger(),
           *get_clock(),
@@ -2224,6 +2632,7 @@ private:
       if (rmp_flag_gate_enabled_ && !external_goal_received_.load()) {
         virtual_velocity_state_initialized_ = false;
         last_safe_command_state_initialized_ = false;
+        clear_tcp_accel_visualization_sample();
         state_ = measured_state;
         if (estimate_velocity_in_controller_) {
           state_.qd = measured_state.qd;
@@ -2232,6 +2641,9 @@ private:
           publish_joint_states(state_);
         }
         publish_rmp_ee_pose(measured_context);
+        GoalTarget goal_target;
+        goal_target_box_.get(goal_target);
+        publish_target_metric(measured_state, goal_target.position);
         RCLCPP_INFO_THROTTLE(
           get_logger(),
           *get_clock(),
@@ -2307,6 +2719,7 @@ private:
           "RMP solve failed, holding command at zero acceleration: %s",
           error.what());
       }
+      update_tcp_accel_visualization(control_state, qdd);
       RobotState predicted_state = integrate_command(control_state, qdd, period.count());
       const auto predicted_context = RB10Model::forward_context(predicted_state.q);
       RobotState command_state = predicted_state;
@@ -2354,6 +2767,7 @@ private:
         last_safe_command_state_initialized_ = true;
       }
       publish_rmp_ee_pose(*command_context);
+      publish_target_metric(control_state, goal);
       publish_target_q(command_state);
       backend_->apply_command(command_state, RB10Model::joint_names);
       publish_direct_command(command_state);
@@ -2557,6 +2971,8 @@ private:
       body_obstacles.markers.push_back(marker);
     }
     body_obstacle_pub_->publish(body_obstacles);
+    publish_repulsion_metric_markers(state, context);
+    publish_tcp_accel_marker(context);
 
     geometry_msgs::msg::PoseStamped eef_pose;
     const Eigen::Vector3d & eef = context.tcp_position;
@@ -2596,6 +3012,12 @@ private:
     clear_array.markers.push_back(clear_marker);
     control_point_pub_->publish(clear_array);
     body_obstacle_pub_->publish(clear_array);
+    if (repulsion_metric_pub_) {
+      repulsion_metric_pub_->publish(clear_array);
+    }
+    if (tcp_accel_pub_) {
+      tcp_accel_pub_->publish(clear_marker);
+    }
     visualization_cleared_for_inactive_ = true;
   }
 
@@ -2612,8 +3034,13 @@ private:
   bool last_safe_command_state_initialized_{false};
   bool controller_velocity_estimator_initialized_{false};
   Eigen::Vector3d body_goal_;
+  TargetRmpParams target_metric_params_;
+  CollisionRmpParams collision_metric_params_;
   realtime_tools::RealtimeBox<GoalTarget> goal_target_box_;
   realtime_tools::RealtimeBox<std::vector<ObstacleSphere>> obstacles_box_;
+  realtime_tools::RealtimeBox<std::vector<std::optional<ObstacleSphere>>>
+  proximity_sensor_obstacles_box_;
+  realtime_tools::RealtimeBox<TcpAccelerationSample> tcp_accel_visualization_box_;
   std::vector<BodyObstacle> body_obstacles_visual_;
   std::atomic<bool> last_min_z_safety_triggered_{false};
   bool initialize_goal_from_first_state_{true};
@@ -2623,6 +3050,8 @@ private:
   std::unordered_map<std::string, ExternalRmpBuffer> external_rmp_buffers_;
   bool publish_joint_states_enabled_{true};
   bool publish_visualization_enabled_{true};
+  bool publish_repulsion_metric_markers_enabled_{true};
+  bool publish_tcp_accel_marker_enabled_{true};
   bool publish_rmp_ee_pose_enabled_{true};
   bool publish_goal_tf_enabled_{true};
   std::string joint_state_topic_{"joint_states"};
@@ -2647,15 +3076,23 @@ private:
   double max_joint_accel_{20.0};
   double command_guard_max_step_rad_{0.00436332313};
   double command_guard_max_velocity_rad_s_{0.436332313};
+  double repulsion_metric_marker_min_norm_{0.01};
+  double repulsion_metric_marker_dot_diameter_{0.04};
+  double tcp_accel_marker_max_length_{0.15};
+  double tcp_accel_marker_norm_for_max_length_{2.0};
+  double tcp_accel_marker_min_norm_{0.001};
   int rmp_active_flag_value_{1};
   std::atomic<bool> rmp_active_{true};
 
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr direct_command_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr target_q_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr target_metric_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr goal_marker_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr control_point_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr body_obstacle_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr repulsion_metric_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr tcp_accel_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr eef_pose_pub_;
   rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr rmp_eef_pose_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr debug_state_pub_;
@@ -2663,6 +3100,7 @@ private:
   std::shared_ptr<JointStateRtPublisher> rt_joint_state_pub_;
   std::shared_ptr<Float64ArrayRtPublisher> rt_direct_command_pub_;
   std::shared_ptr<Float64ArrayRtPublisher> rt_target_q_pub_;
+  std::shared_ptr<Float64ArrayRtPublisher> rt_target_metric_pub_;
   std::shared_ptr<PoseRtPublisher> rt_rmp_eef_pose_pub_;
   rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr goal_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pose_sub_;

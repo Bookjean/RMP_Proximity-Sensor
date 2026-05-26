@@ -94,17 +94,6 @@ Visualization Manager:
       Show Axes: true
       Show Names: true
       Update Interval: 0
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: TofRays
-      Namespaces:
-        tof_rays: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /tof_ray_markers
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -197,22 +186,6 @@ def generate_launch_description():
             output="screen",
             parameters=[{
                 "rate": 30,
-            }],
-        ),
-        Node(
-            package="rb10_rmpflow_rviz",
-            executable="tof_ray_visualizer",
-            name="tof_ray_visualizer",
-            output="screen",
-            parameters=[{
-                "publish_rate": 20.0,
-                "max_range": 0.2,
-                "min_range": 0.02,
-                "sensor_face_width": 0.25,
-                "sensor_face_height": 0.25,
-                "sensor_grid_resolution": 7,
-                "edge_range_ratio": 0.6,
-                "edge_falloff_power": 2.0,
             }],
         ),
         Node(

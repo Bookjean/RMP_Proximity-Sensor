@@ -39,7 +39,6 @@ def generate_launch_description():
     use_interactive_goal = LaunchConfiguration("use_interactive_goal")
     use_obstacles = LaunchConfiguration("use_obstacles")
     use_proximity_bridge = LaunchConfiguration("use_proximity_bridge")
-    use_tof_ray_visualizer = LaunchConfiguration("use_tof_ray_visualizer")
     record_data = LaunchConfiguration("record_data")
     auto_start_recording = LaunchConfiguration("auto_start_recording")
     recording_rate = LaunchConfiguration("recording_rate")
@@ -219,25 +218,6 @@ def generate_launch_description():
         parameters=[params_file],
     )
 
-    tof_ray_visualizer = Node(
-        package="rb10_rmpflow_rviz",
-        executable="tof_ray_visualizer",
-        name="tof_ray_visualizer",
-        output="screen",
-        condition=IfCondition(use_tof_ray_visualizer),
-        parameters=[{
-            "publish_rate": 20.0,
-            "max_range": 0.2,
-            "min_range": 0.02,
-            "sensor_face_width": 0.25,
-            "sensor_face_height": 0.25,
-            "sensor_grid_resolution": 7,
-            "edge_range_ratio": 0.6,
-            "edge_falloff_power": 2.0,
-            "ignored_marker_namespaces": ["proximity_obstacles", "body_obstacles"],
-        }],
-    )
-
     data_recorder = Node(
         package="rb10_rmpflow_rviz",
         executable="rmp_data_recorder.py",
@@ -354,11 +334,6 @@ def generate_launch_description():
             "use_proximity_bridge",
             default_value="false",
             description="Use external proximity topics to build obstacle markers.",
-        ),
-        DeclareLaunchArgument(
-            "use_tof_ray_visualizer",
-            default_value="true",
-            description="Start the ToF ray marker visualizer.",
         ),
         DeclareLaunchArgument(
             "bridge_publish_rate",
@@ -549,6 +524,5 @@ def generate_launch_description():
         interactive_goal,
         obstacle_manager,
         proximity_obstacle_bridge,
-        tof_ray_visualizer,
         rviz,
     ])

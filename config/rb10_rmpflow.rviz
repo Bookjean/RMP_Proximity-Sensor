@@ -113,7 +113,17 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
+        sensor_link2_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
         sensor_link3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        sensor_link3_1:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -161,6 +171,54 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
         tof_W:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof2_E:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof2_N:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof2_S:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof2_W:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof2_1_E:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof2_1_N:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof2_1_S:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof2_1_W:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof3_1_E:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof3_1_N:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof3_1_S:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        tof3_1_W:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -222,17 +280,30 @@ Visualization Manager:
         Value: /body_obstacle_markers
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: false
-      Name: TofRays
+      Enabled: true
+      Name: RepulsionMetric
       Namespaces:
-        {}
+        repulsion_metric_dots: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /tof_ray_markers
-      Value: false
+        Value: /repulsion_metric_markers
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: TcpAccel
+      Namespaces:
+        tcp_accel: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /tcp_accel_marker
+      Value: true
     - Class: rviz_default_plugins/InteractiveMarkers
       Enable Transparency: true
       Enabled: true
@@ -282,7 +353,11 @@ Visualization Manager:
           Value: true
         sensor_link2:
           Value: true
+        sensor_link2_1:
+          Value: true
         sensor_link3:
+          Value: true
+        sensor_link3_1:
           Value: true
         tcp:
           Value: true
@@ -305,6 +380,30 @@ Visualization Manager:
         tof_S:
           Value: true
         tof_W:
+          Value: true
+        tof2_E:
+          Value: true
+        tof2_N:
+          Value: true
+        tof2_S:
+          Value: true
+        tof2_W:
+          Value: true
+        tof2_1_E:
+          Value: true
+        tof2_1_N:
+          Value: true
+        tof2_1_S:
+          Value: true
+        tof2_1_W:
+          Value: true
+        tof3_1_E:
+          Value: true
+        tof3_1_N:
+          Value: true
+        tof3_1_S:
+          Value: true
+        tof3_1_W:
           Value: true
       Marker Scale: 0.30000001192092896
       Name: TF
@@ -338,17 +437,41 @@ Visualization Manager:
                             tcp_rmp:
                               {}
                     sensor_link3:
-                      {}
-                    tof_E:
-                      {}
-                    tof_N:
-                      {}
-                    tof_S:
-                      {}
-                    tof_W:
-                      {}
+                      tof_E:
+                        {}
+                      tof_N:
+                        {}
+                      tof_S:
+                        {}
+                      tof_W:
+                        {}
+                    sensor_link3_1:
+                      tof3_1_E:
+                        {}
+                      tof3_1_N:
+                        {}
+                      tof3_1_S:
+                        {}
+                      tof3_1_W:
+                        {}
                 sensor_link2:
-                  {}
+                  tof2_E:
+                    {}
+                  tof2_N:
+                    {}
+                  tof2_S:
+                    {}
+                  tof2_W:
+                    {}
+                sensor_link2_1:
+                  tof2_1_E:
+                    {}
+                  tof2_1_N:
+                    {}
+                  tof2_1_S:
+                    {}
+                  tof2_1_W:
+                    {}
           rmp_goal_target:
             {}
       Update Interval: 0

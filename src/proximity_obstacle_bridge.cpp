@@ -9,7 +9,9 @@
 
 #include <Eigen/Geometry>
 
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rb10_rmpflow_rviz/rb10_model.hpp"
 #include "sensor_msgs/msg/range.hpp"
 #include "std_msgs/msg/u_int8.hpp"
 #include "tf2/exceptions.h"
@@ -24,6 +26,26 @@ namespace rb10_rmpflow_rviz
 
 namespace
 {
+
+std::vector<std::string> default_range_topics()
+{
+  std::vector<std::string> topics;
+  topics.reserve(RB10Model::sensor_control_points.size());
+  for (std::size_t index = 0; index < RB10Model::sensor_control_points.size(); ++index) {
+    topics.emplace_back("proximity_distance" + std::to_string(index + 1));
+  }
+  return topics;
+}
+
+std::vector<std::string> default_sensor_frames()
+{
+  std::vector<std::string> frames;
+  frames.reserve(RB10Model::sensor_control_points.size());
+  for (const auto & sensor : RB10Model::sensor_control_points) {
+    frames.emplace_back(sensor.frame_name);
+  }
+  return frames;
+}
 
 class ProximityObstacleBridgeNode : public rclcpp::Node
 {
@@ -46,16 +68,10 @@ public:
     declare_parameter("rmp_flag_gate_enabled", false);
     declare_parameter("rmp_flag_topic", "/RMP_flag");
     declare_parameter("rmp_active_flag_value", 1);
-    declare_parameter(
-      "range_topics",
-      std::vector<std::string>{
-        "proximity_distance1",
-        "proximity_distance2",
-        "proximity_distance3",
-        "proximity_distance4"});
-    declare_parameter(
-      "sensor_frames",
-      std::vector<std::string>{"tof_W", "tof_N", "tof_E", "tof_S"});
+    declare_parameter("enable_proximity_distance_1_4", true);
+    declare_parameter("sensor_enabled", std::vector<bool>{});
+    declare_parameter("range_topics", default_range_topics());
+    declare_parameter("sensor_frames", default_sensor_frames());
 
     fixed_frame_ = get_parameter("fixed_frame").as_string();
     obstacle_radius_ = get_parameter("obstacle_radius").as_double();
@@ -68,10 +84,13 @@ public:
     rmp_flag_gate_enabled_ = get_parameter("rmp_flag_gate_enabled").as_bool();
     rmp_active_flag_value_ = static_cast<int>(get_parameter("rmp_active_flag_value").as_int());
     rmp_active_ = !rmp_flag_gate_enabled_;
+    enable_proximity_distance_1_4_ =
+      get_parameter("enable_proximity_distance_1_4").as_bool();
     range_topics_ = get_parameter("range_topics").as_string_array();
     sensor_frames_ = get_parameter("sensor_frames").as_string_array();
     const auto obstacle_radii = get_parameter("obstacle_radii").as_double_array();
     const auto trigger_distances = get_parameter("trigger_distances").as_double_array();
+    sensor_enabled_ = get_parameter("sensor_enabled").as_bool_array();
 
     if (range_topics_.size() != sensor_frames_.size()) {
       throw std::runtime_error("range_topics and sensor_frames must have the same size");
@@ -81,6 +100,12 @@ public:
     }
     if (!trigger_distances.empty() && trigger_distances.size() != sensor_frames_.size()) {
       throw std::runtime_error("trigger_distances must be empty or match sensor_frames size");
+    }
+    if (!sensor_enabled_.empty() && sensor_enabled_.size() != sensor_frames_.size()) {
+      throw std::runtime_error("sensor_enabled must be empty or match sensor_frames size");
+    }
+    if (sensor_enabled_.empty()) {
+      sensor_enabled_.assign(sensor_frames_.size(), true);
     }
 
     latest_ranges_.resize(range_topics_.size());
@@ -108,15 +133,13 @@ public:
         std::bind(&ProximityObstacleBridgeNode::on_rmp_flag, this, std::placeholders::_1));
     }
 
-    range_subs_.reserve(range_topics_.size());
-    for (std::size_t index = 0; index < range_topics_.size(); ++index) {
-      range_subs_.push_back(create_subscription<sensor_msgs::msg::Range>(
-        range_topics_[index],
-        10,
-        [this, index](const sensor_msgs::msg::Range::SharedPtr msg) {
-          latest_ranges_[index] = *msg;
-        }));
-    }
+    range_subs_.resize(range_topics_.size());
+    refresh_range_subscriptions();
+    parameters_callback_handle_ = add_on_set_parameters_callback(
+      std::bind(
+        &ProximityObstacleBridgeNode::on_set_parameters,
+        this,
+        std::placeholders::_1));
 
     const auto period = std::chrono::duration<double>(
       1.0 / std::max(1.0, get_parameter("publish_rate").as_double()));
@@ -143,6 +166,13 @@ private:
       marker.ns = "proximity_obstacles";
       marker.id = static_cast<int32_t>(index);
       marker.type = visualization_msgs::msg::Marker::SPHERE;
+      marker.text = sensor_frames_[index];
+
+      if (!range_topic_enabled(index)) {
+        marker.action = visualization_msgs::msg::Marker::DELETE;
+        msg.markers.push_back(marker);
+        continue;
+      }
 
       const auto & range_msg = latest_ranges_[index];
       if (!range_msg.has_value() || !range_is_usable(*range_msg)) {
@@ -193,6 +223,107 @@ private:
     if (!requested_active) {
       obstacles_cleared_for_inactive_ = false;
     }
+  }
+
+  rcl_interfaces::msg::SetParametersResult on_set_parameters(
+    const std::vector<rclcpp::Parameter> & parameters)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+
+    for (const auto & parameter : parameters) {
+      if (
+        parameter.get_name() != "enable_proximity_distance_1_4" &&
+        parameter.get_name() != "sensor_enabled")
+      {
+        continue;
+      }
+
+      if (parameter.get_name() == "enable_proximity_distance_1_4") {
+        if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+          result.successful = false;
+          result.reason = "enable_proximity_distance_1_4 must be a bool";
+          return result;
+        }
+
+        enable_proximity_distance_1_4_ = parameter.as_bool();
+        refresh_range_subscriptions();
+        RCLCPP_INFO(
+          get_logger(),
+          "proximity_distance1~4 input %s",
+          enable_proximity_distance_1_4_ ? "enabled" : "disabled");
+        continue;
+      }
+
+      if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL_ARRAY) {
+        result.successful = false;
+        result.reason = "sensor_enabled must be a bool array";
+        return result;
+      }
+
+      const auto next_sensor_enabled = parameter.as_bool_array();
+      if (next_sensor_enabled.size() != range_topics_.size()) {
+        result.successful = false;
+        result.reason = "sensor_enabled size must match range_topics size";
+        return result;
+      }
+
+      sensor_enabled_ = next_sensor_enabled;
+      refresh_range_subscriptions();
+      RCLCPP_INFO(get_logger(), "updated per-sensor proximity input enable list");
+    }
+
+    return result;
+  }
+
+  void refresh_range_subscriptions()
+  {
+    for (std::size_t index = 0; index < range_topics_.size(); ++index) {
+      if (!range_topic_enabled(index)) {
+        latest_ranges_[index].reset();
+        range_subs_[index].reset();
+        continue;
+      }
+
+      if (range_subs_[index]) {
+        continue;
+      }
+
+      range_subs_[index] = create_subscription<sensor_msgs::msg::Range>(
+        range_topics_[index],
+        10,
+        [this, index](const sensor_msgs::msg::Range::SharedPtr msg) {
+          latest_ranges_[index] = *msg;
+        });
+    }
+  }
+
+  bool range_topic_enabled(std::size_t index) const
+  {
+    if (index >= range_topics_.size()) {
+      return false;
+    }
+    if (index >= sensor_enabled_.size() || !sensor_enabled_[index]) {
+      return false;
+    }
+    if (!enable_proximity_distance_1_4_ && is_proximity_distance_1_4(range_topics_[index])) {
+      return false;
+    }
+    return true;
+  }
+
+  static bool is_proximity_distance_1_4(const std::string & topic)
+  {
+    std::string normalized_topic = topic;
+    if (!normalized_topic.empty() && normalized_topic.front() == '/') {
+      normalized_topic.erase(normalized_topic.begin());
+    }
+
+    return
+      normalized_topic == "proximity_distance1" ||
+      normalized_topic == "proximity_distance2" ||
+      normalized_topic == "proximity_distance3" ||
+      normalized_topic == "proximity_distance4";
   }
 
   void clear_obstacles_once()
@@ -265,10 +396,12 @@ private:
   double trigger_distance_{0.3};
   bool rmp_flag_gate_enabled_{false};
   bool rmp_active_{true};
+  bool enable_proximity_distance_1_4_{true};
   bool obstacles_cleared_for_inactive_{false};
   int rmp_active_flag_value_{1};
   std::vector<std::string> range_topics_;
   std::vector<std::string> sensor_frames_;
+  std::vector<bool> sensor_enabled_;
   std::vector<double> obstacle_radii_;
   std::vector<double> trigger_distances_;
   std::vector<std::optional<sensor_msgs::msg::Range>> latest_ranges_;
@@ -277,6 +410,7 @@ private:
   tf2_ros::TransformListener tf_listener_;
   rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr flag_sub_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::Range>::SharedPtr> range_subs_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameters_callback_handle_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr obstacle_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };

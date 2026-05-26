@@ -281,6 +281,7 @@ install(
     scripts/create_tuning_experiment.py
     scripts/move_to_saved_start_pose.py
     scripts/joint_velocity_logger.py
+    scripts/rmpflow_trace_logger.py
     scripts/plot_joint_velocity_log.py
     scripts/experiment_goal_runner.py
     scripts/plot_ee_trajectory_3d.py

@@ -940,13 +940,6 @@ void PinocchioDirectRmpSolver::accumulate_leaf_type(
     }
     return;
   }
-  if (leaf_type == "orientation_target") {
-    const auto target_it = vector_targets.find(node.target_key);
-    if (target_it != vector_targets.end()) {
-      accumulate_orientation_target(geometry, qd, target_it->second, metric, force);
-    }
-    return;
-  }
   if (leaf_type == "axis_target") {
     const auto target_it = vector_targets.find(node.target_key);
     if (target_it != vector_targets.end()) {
@@ -968,6 +961,37 @@ void PinocchioDirectRmpSolver::accumulate_leaf_type(
         }
       }
       accumulate_axis_target(
+        geometry,
+        qd,
+        target_it->second,
+        current_position,
+        position_goal,
+        metric,
+        force);
+    }
+    return;
+  }
+  if (leaf_type == "wrist_axis_target") {
+    const auto target_it = vector_targets.find(node.target_key);
+    if (target_it != vector_targets.end()) {
+      Eigen::Vector3d current_position_value = Eigen::Vector3d::Zero();
+      const Eigen::Vector3d * current_position = nullptr;
+      const Eigen::Vector3d * position_goal = nullptr;
+      if (node_enabled("target")) {
+        const auto position_goal_it = vector_targets.find("goal");
+        if (position_goal_it != vector_targets.end()) {
+          position_goal = &position_goal_it->second;
+        }
+        const auto tcp_position_it = cache.find("tcp_position");
+        if (
+          tcp_position_it != cache.end() &&
+          tcp_position_it->second.x.size() == 3)
+        {
+          current_position_value = tcp_position_it->second.x.head<3>();
+          current_position = &current_position_value;
+        }
+      }
+      accumulate_wrist_axis_target(
         geometry,
         qd,
         target_it->second,
@@ -1154,39 +1178,6 @@ void PinocchioDirectRmpSolver::accumulate_target(
     force);
 }
 
-void PinocchioDirectRmpSolver::accumulate_orientation_target(
-  const NodeGeometry & geometry,
-  const JointVector & qd,
-  const Eigen::Vector3d & goal,
-  Matrix6 & metric,
-  JointVector & force) const
-{
-  const bool use_natural_rmp = uses_rmp2_solve() && uses_natural_rmp();
-  if (geometry.x.size() != 3) {
-    throw std::runtime_error("orientation_target leaf expects 3D task map output");
-  }
-
-  const auto velocity = velocity_of(geometry, qd);
-  const Eigen::Vector3d x = geometry.x.normalized();
-  const Eigen::Vector3d xd = velocity;
-  const Eigen::Vector3d goal_unit = goal.normalized();
-  const Eigen::Vector3d delta = goal_unit - x;
-  const Eigen::Vector3d acceleration =
-    config_.orientation.accel_p_gain * delta -
-    config_.orientation.accel_d_gain * xd;
-  const Eigen::Matrix3d leaf_metric =
-    config_.orientation.metric_scalar * Eigen::Matrix3d::Identity();
-
-  accumulate_vector_leaf(
-    use_natural_rmp,
-    geometry.jacobian,
-    leaf_metric,
-    acceleration,
-    geometry.curvature,
-    metric,
-    force);
-}
-
 void PinocchioDirectRmpSolver::accumulate_axis_target(
   const NodeGeometry & geometry,
   const JointVector & qd,
@@ -1230,6 +1221,61 @@ void PinocchioDirectRmpSolver::accumulate_axis_target(
     leaf_metric,
     acceleration,
     geometry.curvature,
+    metric,
+    force);
+}
+
+void PinocchioDirectRmpSolver::accumulate_wrist_axis_target(
+  const NodeGeometry & geometry,
+  const JointVector & qd,
+  const Eigen::Vector3d & goal,
+  const Eigen::Vector3d * current_position,
+  const Eigen::Vector3d * position_goal,
+  Matrix6 & metric,
+  JointVector & force) const
+{
+  NodeGeometry wrist_geometry = geometry;
+  if (wrist_geometry.jacobian.cols() != 6) {
+    throw std::runtime_error("wrist_axis_target leaf expects a 6-column Jacobian");
+  }
+  // wrist_geometry.jacobian.leftCols(3).setZero();
+  wrist_geometry.velocity = wrist_geometry.jacobian * qd;
+  wrist_geometry.curvature = Eigen::VectorXd::Zero(wrist_geometry.x.size());
+
+  const bool use_natural_rmp = uses_rmp2_solve() && uses_natural_rmp();
+  if (wrist_geometry.x.size() != 3) {
+    throw std::runtime_error("wrist_axis_target leaf expects 3D task map output");
+  }
+
+  const Eigen::Vector3d x = wrist_geometry.x.normalized();
+  const Eigen::Vector3d xd = wrist_geometry.velocity;
+  const Eigen::Vector3d goal_unit = goal.normalized();
+  const Eigen::Vector3d delta = goal_unit - x;
+  const Eigen::Vector3d acceleration =
+    config_.wrist_axis_target.accel_p_gain * delta -
+    config_.wrist_axis_target.accel_d_gain * xd;
+
+  Eigen::Matrix3d leaf_metric =
+    config_.wrist_axis_target.metric_scalar * Eigen::Matrix3d::Identity();
+  if (current_position != nullptr && position_goal != nullptr) {
+    const double delta_norm = (*position_goal - *current_position).norm();
+    const double boost_length_scale =
+      std::max(config_.wrist_axis_target.proximity_metric_boost_length_scale, 1e-9);
+    const double boost_scaled_dist =
+      delta_norm / boost_length_scale;
+    const double boost_alpha = std::exp(-0.5 * boost_scaled_dist * boost_scaled_dist);
+    const double metric_boost_scalar =
+      boost_alpha * config_.wrist_axis_target.proximity_metric_boost_scalar +
+      (1.0 - boost_alpha);
+    leaf_metric *= metric_boost_scalar;
+  }
+
+  accumulate_vector_leaf(
+    use_natural_rmp,
+    wrist_geometry.jacobian,
+    leaf_metric,
+    acceleration,
+    wrist_geometry.curvature,
     metric,
     force);
 }

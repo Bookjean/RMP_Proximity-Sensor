@@ -79,6 +79,7 @@ private:
     std::scoped_lock lock(mutex_);
 
     const int flag_value = static_cast<int>(msg->data);
+    RCLCPP_INFO(get_logger(), "Received /RMP_flag: %d", flag_value);
     RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000, "RMP_flag: %d", flag_value);
     if (!last_flag_value_seen_ || flag_value != last_flag_value_) {
       if (flag_value == active_flag_value_) {
@@ -129,6 +130,16 @@ private:
 
     latest_goal_ = *msg;
     goal_received_ = true;
+    RCLCPP_INFO(
+      get_logger(),
+      "Received /RMP_goal: position=(%.4f, %.4f, %.4f), orientation=(%.4f, %.4f, %.4f, %.4f)",
+      latest_goal_.position.x,
+      latest_goal_.position.y,
+      latest_goal_.position.z,
+      latest_goal_.orientation.x,
+      latest_goal_.orientation.y,
+      latest_goal_.orientation.z,
+      latest_goal_.orientation.w);
     if (!active_) {
       return;
     }

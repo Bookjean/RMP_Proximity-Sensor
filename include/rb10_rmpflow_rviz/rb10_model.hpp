@@ -106,15 +106,27 @@ public:
     {LINK6, TCP, 5, 0.05},
   }};
 
-  inline static const std::array<SensorControlPointSpec, 8> sensor_control_points{{
-    {"tof_N", LINK3_5, Eigen::Vector3d(-0.0645, 0.0, 0.285075), 0.1},
-    {"tof_S", LINK3_5, Eigen::Vector3d(0.0645, 0.0, 0.285075),  0.1},
-    {"tof_E", LINK3_5, Eigen::Vector3d(0.0, 0.0645, 0.285075),  0.1},
-    {"tof_W", LINK3_5, Eigen::Vector3d(0.0, -0.0645, 0.285075), 0.1},
-    {"tof6_1_F", LINK5, Eigen::Vector3d(0.0, 0.0, 0.17715), 0.1},
+  inline static const std::array<SensorControlPointSpec, 20> sensor_control_points{{
     {"tof6_1_L", LINK5, Eigen::Vector3d(-0.06, 0.0, 0.11715),  0.1},
+    {"tof6_1_F", LINK5, Eigen::Vector3d(0.0, 0.0, 0.17715), 0.1},
     {"tof6_1_R", LINK5, Eigen::Vector3d(0.06, 0.0, 0.11715), 0.1},
     {"tof6_1_U", LINK5, Eigen::Vector3d(0.0, 0.0667, 0.11715), 0.1},
+    {"tof_S", LINK3_5, Eigen::Vector3d(0.0645, 0.0, 0.405075),  0.1},
+    {"tof_E", LINK3_5, Eigen::Vector3d(0.0, 0.0645, 0.405075),  0.1},
+    {"tof_N", LINK3_5, Eigen::Vector3d(-0.0645, 0.0, 0.405075), 0.1},
+    {"tof_W", LINK3_5, Eigen::Vector3d(0.0, -0.0645, 0.405075), 0.1},
+    {"tof3_1_S", LINK3_5, Eigen::Vector3d(0.0645, 0.0, 0.205075),  0.1},
+    {"tof3_1_W", LINK3_5, Eigen::Vector3d(0.0, -0.0645, 0.205075), 0.1},
+    {"tof3_1_N", LINK3_5, Eigen::Vector3d(-0.0645, 0.0, 0.205075), 0.1},
+    {"tof3_1_E", LINK3_5, Eigen::Vector3d(0.0, 0.0645, 0.205075),  0.1},
+    {"tof2_1_E", LINK2, Eigen::Vector3d(0.0, -0.1085, 0.2262), 0.1},
+    {"tof2_1_S", LINK2, Eigen::Vector3d(0.079, -0.1875, 0.2262), 0.1},
+    {"tof2_1_W", LINK2, Eigen::Vector3d(0.0, -0.2665, 0.2262), 0.1},
+    {"tof2_1_N", LINK2, Eigen::Vector3d(-0.079, -0.1875, 0.2262), 0.1},
+    {"tof2_E", LINK2, Eigen::Vector3d(0.0, -0.1085, 0.4262), 0.1},
+    {"tof2_S", LINK2, Eigen::Vector3d(0.079, -0.1875, 0.4262), 0.1},
+    {"tof2_W", LINK2, Eigen::Vector3d(0.0, -0.2665, 0.4262), 0.1},
+    {"tof2_N", LINK2, Eigen::Vector3d(-0.079, -0.1875, 0.4262), 0.1},
   }};
 
   static Eigen::Affine3d origin_transform(

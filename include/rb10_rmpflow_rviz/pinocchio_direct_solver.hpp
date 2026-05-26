@@ -116,14 +116,16 @@ private:
     Matrix6 & metric,
     JointVector & force) const;
 
-  void accumulate_orientation_target(
+  void accumulate_axis_target(
     const NodeGeometry & geometry,
     const JointVector & qd,
     const Eigen::Vector3d & goal,
+    const Eigen::Vector3d * current_position,
+    const Eigen::Vector3d * position_goal,
     Matrix6 & metric,
     JointVector & force) const;
 
-  void accumulate_axis_target(
+  void accumulate_wrist_axis_target(
     const NodeGeometry & geometry,
     const JointVector & qd,
     const Eigen::Vector3d & goal,
